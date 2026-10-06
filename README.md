@@ -103,6 +103,17 @@ Every compaction, yours or automatic, keeps approvals, the plan, modes and open 
 
 ### Context doctor
 
+**What it is:** an audit of what takes room in the context window, by the same categories as the bar. Open it with
+`/context-doctor`.
+
+**What it does:** it measures each category and flags what costs tokens on every request: large memory files, MCP
+servers you never call, skills Claude can't see, unused agents, and how close auto-compact is. On request, an AI
+audit turns each finding into step-by-step fixes with the tokens each one frees, and **draft** hands a fix to Claude,
+which asks before editing.
+
+**When to use it:** when the context is already large at the start of a session; after adding MCP servers, skills,
+agents or memory files; or when auto-compact keeps arriving sooner than you expect.
+
 `/context-doctor [--model=opus|sonnet|haiku|fable|<id>] [--effort=low|medium|high|xhigh|max] [ask]`
 
 **Features:**
