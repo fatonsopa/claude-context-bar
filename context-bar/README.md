@@ -130,6 +130,8 @@ case you need more detail later.
    Handoff: /…/.claude/knowledge/handoffs/<name>-handoff.md
    ```
 
+   ![The bar after handoff & compact: "Compact completed on October 6, 11:51:35pm: context went from 21% to 1%." and, under it, the handoff path to click](docs/images/handoff-compact-done.png)
+
 **After it.** Click the handoff path to open the file. Your task list stays as it was, since the session goes
 on. A copy of the summary is saved to `~/.claude/handoffs/<project>/<time>-compact.md`. The bar makes no new
 suggestion for the next 10 minutes.

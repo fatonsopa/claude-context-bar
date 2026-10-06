@@ -446,7 +446,7 @@ test('"handoff & compact": the handoff goes to a draft (never printed), is saved
   expect(during).toHaveLength(2)
   expect(during[0]).toMatch(completedOn(SAVED))
   expect(during[1]).toBe('Compacting… this can take a minute.')
-  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0 })
+  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0, squeezed: 0 })
   release()
   await w.clock.settle()
   const sent = w.compacts[0]?.instructions ?? ''
@@ -459,7 +459,7 @@ test('"handoff & compact": the handoff goes to a draft (never printed), is saved
   expect(lines[1]).toBe(`Handoff: ${SAVED}`)
   expect(lines).toHaveLength(2)
   // the path is drawn once, and pressing it opens the handoff file
-  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0 })
+  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0, squeezed: 0 })
   await ui.press({ key: 'compact-open-1' })
   await w.clock.settle()
   expect(w.runs).toContainEqual(['open', SAVED])
@@ -495,7 +495,7 @@ test('a /compact the person types gets the keep list and ends with a note of whe
   const lines = await bandLines(ui)
   expect(lines[0]).toMatch(/^Compact completed on .*: context went from 40% to 9%\.$/)
   expect(lines[1]).toMatch(/^Handoff: \/home\/me\/\.claude\/handoffs\/proj\/\d{8}-\d{6}-compact\.md$/)
-  expect(await bandPaths(ui)).toEqual({ paths: [lines[1]?.slice('Handoff: '.length)], links: 0 })
+  expect(await bandPaths(ui)).toEqual({ paths: [lines[1]?.slice('Handoff: '.length)], links: 0, squeezed: 0 })
   await ui.unmount()
 })
 
@@ -551,13 +551,20 @@ const bandLines = async (ui: { find: (q: { key: string }) => Promise<unknown> })
   }
   return lines
 }
-/** The pressable paths in the bar's line (a press opens the file), and how many Links it draws (none: a terminal
- * without hyperlinks would print a Link's URL a second time). */
+/** The pressable paths in the bar's line (a press opens the file), how many Links it draws (none: a terminal
+ * without hyperlinks would print a Link's URL a second time), and how many rows holding a path do not wrap (none: a
+ * row that cannot wrap squeezes its words into a narrow column beside a path too long to fit next to them). */
 const bandPaths = async (ui: { findAll: (q: { type: string }) => Promise<unknown[]> }) => ({
   paths: ((await ui.findAll({ type: 'Button' })) as Node[])
     .filter(b => String(b.props?.key ?? '').startsWith('compact-open-'))
     .map(b => String(b.props?.label)),
   links: ((await ui.findAll({ type: 'Link' })) as Node[]).length,
+  squeezed: ((await ui.findAll({ type: 'Box' })) as Node[]).filter(
+    b =>
+      String(b.props?.key ?? '').startsWith('compact-line-') &&
+      (b.children ?? []).some(c => typeof c !== 'string' && String(c?.props?.key ?? '').startsWith('compact-open-')) &&
+      b.props?.flexWrap !== 'wrap',
+  ).length,
 })
 
 /**
@@ -664,7 +671,7 @@ test('"handoff & clear": the handoff is saved, then /clear is run, as the button
   expect(w.commands).toEqual(['clear'])
   expect(w.filled).toEqual([])
   expect(await bandLines(ui)).toEqual([expect.stringMatching(/^Clear completed on [A-Z][a-z]+ \d+, .*\.$/), `Handoff: ${SAVED}`])
-  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0 })
+  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0, squeezed: 0 })
   await ui.unmount()
 })
 

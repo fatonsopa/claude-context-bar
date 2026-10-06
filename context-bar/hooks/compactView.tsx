@@ -39,6 +39,9 @@ export const MESSAGE_FG = '#F2C76E'
  * One line of a message, its handoff path (if it names it) drawn once and pressable: a press opens the file. A
  * Button, not a Link: a terminal without hyperlinks (macOS Terminal) draws a Link's text and then its URL again, and
  * neither can be clicked; a Button is pressed by a click on every terminal.
+ *
+ * The row wraps: when the words and the path do not fit side by side, the path moves under the words, whole. Without
+ * it the row squeezes the words into a narrow column beside the path ("Handoff / completed on / October 6, / ...").
  */
 function messageLine(a: CompactArgs, line: string, i: number): RenderElement {
   const { Box, Text, Button } = a.els
@@ -56,7 +59,7 @@ function messageLine(a: CompactArgs, line: string, i: number): RenderElement {
   const before = line.slice(0, at)
   const after = line.slice(at + link.length)
   return (
-    <Box key={`compact-line-${i}`} flexDirection="row">
+    <Box key={`compact-line-${i}`} flexDirection="row" flexWrap="wrap">
       {before ? <Text color={MESSAGE_FG}>{before}</Text> : null}
       <Button key={`compact-open-${i}`} plain label={link} hover={{ color: MESSAGE_FG, underline: true }} onPress={() => a.on.open(link)} />
       {after ? <Text color={MESSAGE_FG}>{after}</Text> : null}

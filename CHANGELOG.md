@@ -5,6 +5,16 @@ All notable changes to the mods in this repository. The format follows
 
 ## context-bar
 
+### [0.17.3] — 2026-10-06
+
+#### Fixed
+- The words before a handoff path ("Handoff completed on October 6, 11:50:41pm:") were squeezed into a narrow column
+  beside the path when the two did not fit on one line. The words now stay on one line; when the path does not fit
+  beside them, it starts on the next line, whole.
+
+#### Added
+- README: a screenshot of the **handoff & compact** result.
+
 ### [0.17.2] — 2026-10-06
 
 #### Fixed
