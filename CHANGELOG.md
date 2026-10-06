@@ -5,6 +5,13 @@ All notable changes to the mods in this repository. The format follows
 
 ## context-bar
 
+### [0.17.7] — 2026-10-07
+
+#### Changed
+- README follows the standard layout: what it is for and how it helps first, then contents, requirements, install
+  (the `--marketplace` one-step form, the two-step form, the shell form, private-repository access), update and
+  uninstall, usage, settings (`/plugin` → Configure options), privacy, contributing and license.
+
 ### [0.17.6] — 2026-10-07
 
 #### Changed

@@ -1,35 +1,84 @@
 # ai-dev-architecture
 
-Claude Code mods. One so far: **context-bar**. It shows what fills the context window and hands work over across
-compactions and new sessions.
+Keep long Claude Code sessions on track: see what fills the context, and hand work over without losing it.
 
-![The context bar above the prompt](context-bar/docs/images/bar.png)
+![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](context-bar/docs/images/bar.png)
 
-Version 0.17.6 · Claude Code 2.1.292 · [changelog](CHANGELOG.md)
+Long sessions fail in three quiet ways. This repository's **context-bar** plugin fixes each:
+
+- **The context fills up unseen**, and auto-compact drops details you still needed. The bar shows what fills the
+  window and how close auto-compact is, and suggests compacting at a natural stopping point.
+- **A new session starts from zero.** One button writes a checked handoff (goal, decisions, approvals, open tasks,
+  next commands), then compacts or clears. The next session continues from it.
+- **You can't see what costs tokens on every turn.** The context doctor finds big memory files, unused MCP servers
+  and skills Claude can't see, and plans the fix.
+
+Version 0.17.7 · [changelog](CHANGELOG.md)
+
+## Contents
+
+- [Requirements](#requirements)
+- [Install](#install)
+- [Update and uninstall](#update-and-uninstall)
+- [Usage](#usage)
+- [Settings](#settings)
+- [Privacy and cost](#privacy-and-cost)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Requirements
+
+- Claude Code 2.1.275 or later (built and tested on 2.1.292).
+- git, for the commit and push suggestions and for committing handoffs.
+- A dark terminal theme. Light themes are not tuned yet.
 
 ## Install
+
+In a Claude Code session:
 
 ```
 /plugin install context-bar --marketplace fatonsopa/ai-dev-architecture
 ```
 
-From a checkout: `claude --plugin-dir <path>/context-bar`.
+Confirm the marketplace, then pick a scope. The bar appears above the prompt. The same in two steps:
 
-## The bar
+```
+/plugin marketplace add fatonsopa/ai-dev-architecture
+/plugin install context-bar@ai-dev-architecture
+```
+
+From your shell: `claude plugin install context-bar@ai-dev-architecture` (after `claude plugin marketplace add
+fatonsopa/ai-dev-architecture`). The repository is private: Claude Code clones it with your own GitHub access (`gh auth
+login` or an SSH key).
+
+To run a local checkout for one session: `claude --plugin-dir <path>/context-bar`.
+
+## Update and uninstall
+
+```bash
+claude plugin update context-bar@ai-dev-architecture
+claude plugin uninstall context-bar@ai-dev-architecture
+```
+
+Auto-update is off for this marketplace by default. Turn it on in `/plugin` → **Marketplaces**.
+
+## Usage
+
+### The bar
 
 ![The bar with its categories open](context-bar/docs/images/bar-categories.png)
 
 | Part | Shows |
 |---|---|
-| Header | Tokens used, where auto-compact starts, a % badge (green, then yellow from 60% of the way to auto-compact, red from 85%). `est.` = local estimate, `exact` = counted by the API. |
+| Header | Tokens used, where auto-compact starts, a % badge (yellow from 60% of the way to auto-compact, red from 85%). `est.` = local estimate, `exact` = counted by the API. |
 | Limits line | Each rate-limit window (session, week, a model's week): meter, %, time to reset. Then this session's cost at API prices. |
 | Colour strip | The window by category, with a mark where auto-compact starts. |
 | Categories | Tokens and share of each category. Inside: items, largest first; inside an item: a file's sections or a server's tools. |
-| Doctor line | The context doctor's progress (`◐ … auditing … 12s`), then `✓ context audit ready` or `✗ … failed`. |
+| Doctor line | The context doctor's progress, then its result. |
 
 It updates within 1.5 s of every prompt and tool call.
 
-## Buttons
+### Buttons
 
 | Button | Does |
 |---|---|
@@ -44,7 +93,7 @@ It updates within 1.5 s of every prompt and tool call.
 | The doctor line | Show the AI's summary, top 5 actions and the audit file |
 | **draft** · **[copy path]** · **[open doctor]** · `✕` | In that panel: draft an action · copy the audit path · open the doctor · remove the line |
 
-## Handoff
+### Handoff
 
 1. Claude writes the handoff to a hidden draft file. It is not printed in the chat.
 2. The bar checks it. Required: Goal, Where things stand, Decisions and approvals, Next steps, How to verify, How to
@@ -54,9 +103,9 @@ It updates within 1.5 s of every prompt and tool call.
    git state and the open tasks (as JSON).
 4. The bar compacts or runs `/clear`.
 
-![After handoff & compact](context-bar/docs/images/handoff-compact-done.png)
+![After handoff & compact: the context went from 21% to 1%, and the handoff path](context-bar/docs/images/handoff-compact-done.png)
 
-![After handoff & clear, with Continue](context-bar/docs/images/handoff-clear-done.png)
+![After handoff & clear: the handoff path and the Continue offer](context-bar/docs/images/handoff-clear-done.png)
 
 **Continue** appears after `/clear`, or in a new session within 6 hours of the handoff. It recreates the open tasks,
 then follows the handoff's "How to resume". It goes away when you send anything else.
@@ -67,7 +116,7 @@ Pressed while Claude is mid-step, a button does nothing. If git refuses the comm
 Every compaction, yours or automatic, keeps approvals, the plan, modes and open errors. Its summary is saved to
 `~/.claude/handoffs/<project>/<time>-compact.md`.
 
-## Suggestions
+### Suggestions
 
 | After | Line under the strip | Marked button |
 |---|---|---|
@@ -77,14 +126,14 @@ Every compaction, yours or automatic, keeps approvals, the plan, modes and open 
 | `/clear` or a new session | `↺ A handoff … — continue from it?` | **Continue** |
 
 Only when the conversation holds 80k+ tokens. Never within 10 min of a compaction. Never while subagents, background
-commands, a git merge or rebase, or failing tests are running. In those cases it waits until the work ends. A
-suggestion stays until you press a button or the context shrinks.
+commands, a git merge or rebase, or failing tests are running; it waits until they end. A suggestion stays until you
+press a button or the context shrinks.
 
-## Context doctor
+### Context doctor
 
 `/context-doctor [--model=opus|sonnet|haiku|fable|<id>] [--effort=low|medium|high|xhigh|max] [ask]`
 
-<img src="context-bar/docs/images/context-doctor.png" alt="The context doctor" width="497">
+<img src="context-bar/docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
 
 **Checks** (free, run locally):
 
@@ -111,7 +160,7 @@ suggestion stays until you press a button or the context shrinks.
   `/clear`, a file's path.
 - **Progress in the bar** while the AI works, so the pane can be closed.
 
-## Commands
+### Commands
 
 | Command | Does |
 |---|---|
@@ -121,29 +170,37 @@ suggestion stays until you press a button or the context shrinks.
 | `/context-bar status` | Version, running work, suggestion, last handoff, open tasks, settings |
 | `/context-doctor help` | Usage |
 
-## Settings (`/config`)
+## Settings
 
-| Key | Default |
+`/plugin` → **Installed** → **context-bar** → **Configure options**.
+
+| Option | Default |
 |---|---|
-| `suggest_compact_at_tokens` | 80,000 |
-| `long_output_tokens` | 15,000 |
-| `long_skill_run_minutes` | 5 |
-| `offer_handoff_hours` | 6 |
-| `handoff_folder` | `.claude/knowledge/handoffs` |
-| `commit_handoffs` | on |
+| Suggest compacting at (tokens of conversation) | 80,000 |
+| Long output tip at (tokens in one tool result) | 15,000 |
+| Long skill run (minutes) | 5 |
+| Offer a handoff for (hours) | 6 |
+| Handoff folder (relative to the repository) | `.claude/knowledge/handoffs` |
+| Commit handoffs | on |
 
 ## Privacy and cost
 
 The bar, the suggestions and the doctor's checks run locally. **recalculate** is free. A handoff is one normal Claude
 turn. **ask AI** and **deep-dive** send the measurements (or one file) to the chosen model; each button shows the cost
-first. Nothing is pushed.
+first. The plugin commits handoffs but never pushes.
 
-## Develop
+## Contributing
+
+Open an issue or a pull request. Before each change:
 
 ```bash
 claude plugin validate context-bar
 claude plugin test context-bar
 ```
 
-Each change: bump `context-bar/.claude-plugin/plugin.json` and `context-bar/hooks/version.ts`, add a changelog entry,
-commit, push.
+Bump the version in `context-bar/.claude-plugin/plugin.json` and `context-bar/hooks/version.ts`, and add a
+[changelog](CHANGELOG.md) entry.
+
+## License
+
+No license yet: all rights reserved by Faton Sopa.
