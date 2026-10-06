@@ -149,7 +149,9 @@ function world(
       ? w.draft.text !== null
       : // the stored handoffs the resume tests point at; a new handoff file does not exist yet
         (e.path.startsWith('/home/me/.claude/handoffs/') && !e.path.endsWith('/export-button-handoff.md')) ||
-        (opts.existingHandoff !== undefined && e.path.endsWith('/export-button-handoff.md')),
+        (opts.existingHandoff !== undefined && e.path.endsWith('/export-button-handoff.md')) ||
+        // a file the bar wrote exists from then on
+        w.written.some(f => f.path === e.path),
   }))
   on('fs.read', ($, e) => ({ value: isDraft(e.path) ? (w.draft.text ?? '') : '' }))
   on('fs.list', () => ({ value: w.listing.map(name => ({ name, kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })) }))
@@ -1375,4 +1377,24 @@ test('tasks a subagent makes are its own: they are not carried into the handoff'
   expect((await $.command.run(run('status'))).text).toContain('Open tasks the next handoff carries: 0')
   await $.tool.call({ tool: 'TaskCreate', subject: 'Main step', description: 'the person\'s' })
   expect((await $.command.run(run('status'))).text).toContain('Open tasks the next handoff carries: 1')
+})
+
+test('after "handoff & clear" the new conversation shows the result AND the Continue offer for that handoff', async ($, on) => {
+  const w = world(on)
+  await skillRunJustEnded($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'clear-anytime' })
+  await claudeWrites($, w, HANDOFF_BODY)
+  await w.clock.settle()
+  expect(w.commands).toEqual(['clear'])
+  // /clear starts a new conversation: Claude Code raises SessionStart for it
+  await $.classic.SessionStart({ source: 'clear' })
+  const lines = await bandLines(ui)
+  expect(lines[0]).toMatch(/^Clear completed on /)
+  expect(lines[1]).toBe(`Handoff: ${SAVED}`)
+  // the offer to continue from that handoff is there too, with its button
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toMatch(/^↺ A handoff from your last session was saved .* — continue from it\?$/)
+  await ui.press({ key: 'compact-resume' })
+  expect(w.filled[0] ?? '').toBe(resumePrompt(SAVED))
+  await ui.unmount()
 })

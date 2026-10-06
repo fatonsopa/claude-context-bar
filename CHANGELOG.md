@@ -5,6 +5,13 @@ All notable changes to the mods in this repository. The format follows
 
 ## context-bar
 
+### [0.17.1] — 2026-10-06
+
+#### Fixed
+- After **handoff & clear**, the "Clear completed" line hid the **Continue** offer, and the first message removed both,
+  so the handoff could not be continued from the bar. The bar now shows its result with the suggestion (or the offer
+  to continue) on the line under it.
+
 ### [0.17.0] — 2026-10-06
 
 #### Added
@@ -49,6 +56,7 @@ All notable changes to the mods in this repository. The format follows
 Before 0.15.0 the mod was not kept in this repository. By 0.14.0 it had the context bar, `/context-doctor`, and the
 compact and handoff suggestions with checked handoffs saved and committed in the project.
 
+[0.17.1]: https://github.com/fatonsopa/ai-dev-architecture/compare/5dc4d19...main
 [0.17.0]: https://github.com/fatonsopa/ai-dev-architecture/compare/746fb5d...5dc4d19
 [0.16.1]: https://github.com/fatonsopa/ai-dev-architecture/compare/63dd66f...746fb5d
 [0.16.0]: https://github.com/fatonsopa/ai-dev-architecture/compare/48ee9cf...63dd66f

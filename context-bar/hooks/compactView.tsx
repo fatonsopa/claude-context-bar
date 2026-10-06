@@ -52,27 +52,27 @@ function messageLine(els: Els, line: string, link: string | null): RenderElement
 
 export function compactLine(a: CompactArgs): RenderElement | null {
   const { Box, Text, Button } = a.els
-  // what is happening now, else the last result, each on the band; a message may hold several lines
+  // what is happening now, else the last result; a message may hold several lines
   const message = a.running ?? a.result
-  if (message) {
-    return (
-      <Box key="compact" marginTop={1} flexDirection="column">
-        {message.split('\n').map((line, i) => (
-          <Box key={`compact-line-${i}`}>{messageLine(a.els, line, a.link)}</Box>
-        ))}
-      </Box>
-    )
-  }
-  const tip = a.tip
-  if (!tip || a.isWorking) return null
+  // the suggestion (or the offer to continue) under the result, never hidden by it: after "handoff & clear" the new
+  // conversation shows both "Clear completed" and Continue. Not while the bar is working, nor while Claude is.
+  const tip = a.tip && !a.running && !a.isWorking ? a.tip : null
+  if (!message && !tip) return null
   return (
-    <Box key="compact" marginTop={1} flexDirection="row" columnGap={2}>
-      <Box key="compact-text">
-        <Text color={MESSAGE_FG} wrap="wrap">
-          {tipText(tip, a.now)}
-        </Text>
-      </Box>
-      {tip.reason === 'resume' && <Button key="compact-resume" variant="primary" label="Continue" onPress={() => a.on.resume()} />}
+    <Box key="compact" marginTop={1} flexDirection="column">
+      {message?.split('\n').map((line, i) => (
+        <Box key={`compact-line-${i}`}>{messageLine(a.els, line, a.link)}</Box>
+      ))}
+      {tip && (
+        <Box key="compact-tip" flexDirection="row" columnGap={2}>
+          <Box key="compact-text">
+            <Text color={MESSAGE_FG} wrap="wrap">
+              {tipText(tip, a.now)}
+            </Text>
+          </Box>
+          {tip.reason === 'resume' && <Button key="compact-resume" variant="primary" label="Continue" onPress={() => a.on.resume()} />}
+        </Box>
+      )}
     </Box>
   )
 }

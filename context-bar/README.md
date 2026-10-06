@@ -16,7 +16,7 @@ repository.
 
 ![The context bar above the prompt: 385k of 1M used, auto-compact at 967k, the two handoff buttons, the session and week limits, and the colour strip](docs/images/bar.png)
 
-Version 0.17.0 · built and tested on Claude Code 2.1.292 · [changelog](../CHANGELOG.md)
+Version 0.17.1 · built and tested on Claude Code 2.1.292 · [changelog](../CHANGELOG.md)
 
 ## Contents
 
@@ -136,18 +136,59 @@ suggestion for the next 10 minutes.
 
 ### handoff & clear
 
-Use it when the next task has nothing to do with this one. Steps 1 to 3 are the same, then the bar runs `/clear`
-instead of compacting:
+Use it when the next task has nothing to do with this one: you want a clean context, and everything worth keeping
+written down first. The conversation ends; a new, empty one starts, and the handoff is waiting for it.
+
+**Before you press it.** Wait for Claude to finish its current step; pressed mid-turn, the bar says
+`Wait until Claude finishes the current step, then hand off.` and does nothing. `/context-bar handoff` does the same
+as the button, from the prompt.
+
+**What happens, and what the bar shows at each step:**
+
+1. **Claude writes the handoff.** One collapsed Write in the transcript and a one-line reply, "Handoff written." The
+   handoff goes to a hidden draft file and is never printed, so it isn't paid for twice.
+
+   ```
+   Writing the handoff…
+   ```
+2. **The bar checks it.** Every required section must be there, and every open task must be named. If anything is
+   missing, the file is saved but flagged and **nothing is cleared**:
+
+   ```
+   Handoff failed on October 6, 10:41:47pm: /…/handoffs/<name>-handoff.md is missing How to verify. Nothing was cleared.
+   ```
+3. **The bar saves and commits it** as `<name>-handoff.md`, named after the plan or the work, and removes the draft.
+   It commits only that file, by path. If git refuses, the line says `(not committed: <reason>)` and the clear still
+   runs.
+4. **The bar runs `/clear`.**
+
+   ```
+   Handoff completed on October 6, 10:41:47pm: /…/.claude/knowledge/handoffs/<name>-handoff.md
+   Now starting clear...
+   ```
+5. **The result**, in the new conversation, with the offer to continue under it:
+
+   ```
+   Clear completed on October 6, 10:41:52pm.
+   Handoff: /…/.claude/knowledge/handoffs/<name>-handoff.md
+   ↺ A handoff from your last session was saved 1 min ago — continue from it?      Continue
+   ```
+
+   If `/clear` itself fails, the handoff is still saved and the line says so:
+   `Clear failed on …: <reason>. The handoff is saved: <path>. Type /clear yourself.`
+
+**After it: pick the work up again.** The new conversation starts with an empty context and an empty task list.
+**Continue** puts this request in the prompt box, for you to read and send with Enter:
 
 ```
-Clear completed on October 6, 10:42:05pm.
-Handoff: /…/.claude/knowledge/handoffs/<name>-handoff.md
+Read /…/<name>-handoff.md. If it has a "Task list to recreate on resume" section, first recreate those tasks exactly
+as it says. Then follow its "How to resume": check the folder and branch, run "How to verify", and tell me in two
+lines where things stand and what you will do first.
 ```
 
-The new conversation starts empty. The bar offers the handoff there
-(`↺ A handoff from your last session was saved … — continue from it?`), and **Continue** puts a request in the prompt
-box to read it, recreate the open tasks, run its checks and say where things stand. `/context-bar handoff` starts the
-same thing from the prompt.
+The offer also appears when you start `claude` fresh in the same project, as long as the handoff is newer than
+*Offer a handoff for* (6 hours by default). It goes away when you send anything else, since that means you started on
+other work.
 
 ### The handoff
 
