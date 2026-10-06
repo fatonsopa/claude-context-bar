@@ -23,6 +23,8 @@ Version 0.17.0 · built and tested on Claude Code 2.1.292 · [changelog](../CHAN
 - [Install](#install)
 - [The context bar](#the-context-bar)
 - [Compact and handoff](#compact-and-handoff)
+  - [handoff & compact](#handoff--compact)
+  - [handoff & clear](#handoff--clear)
 - [The context doctor](#the-context-doctor)
 - [Commands](#commands)
 - [Settings](#settings)
@@ -87,29 +89,65 @@ There is no "later" button. Nothing is suggested while a turn runs, while subage
 running, during a git merge or rebase, or while the last test run failed. A moment that comes during such work is
 offered as soon as the work ends. If you type `/compact` at a bad moment, the bar warns you and still compacts.
 
-### What happens when you press one
+### handoff & compact
 
-1. **Claude writes the handoff** to a hidden draft file in the handoff folder. You see one collapsed Write in the
-   transcript and a one-line reply; the handoff is never printed, so it isn't paid for twice. The bar shows
-   `Writing the handoff…`.
-2. **The bar checks it.** Every required section must be there, and every open task must be named (see below). If
-   anything is missing, the handoff is saved but flagged, and nothing is compacted or cleared:
-   `Handoff failed on …: <path> is missing How to verify. Nothing was compacted.`
-3. **The bar saves it** as `<name>-handoff.md`, named after the plan or the work (for example
-   `context-bar-compact-suggestions-handoff.md`), removes the draft and commits that one file by path. A failed
-   commit is only a note on the result line (`not committed: <reason>`); it never stops the action.
-4. **Then it compacts or clears**, as the button says:
+Use it when you keep working on the same thing and want a lighter context: after a commit, a push, or a long skill
+run. The conversation goes on in the same session, with a summary in place of the history and a handoff on disk in
+case you need more detail later.
+
+**Before you press it.** Wait for Claude to finish its current step; pressed mid-turn, the bar says
+`Wait until Claude finishes the current step, then hand off.` and does nothing.
+
+**What happens, and what the bar shows at each step:**
+
+1. **Claude writes the handoff.** One collapsed Write in the transcript and a one-line reply, "Handoff written." The
+   handoff goes to a hidden draft file and is never printed, so it isn't paid for twice.
+
+   ```
+   Writing the handoff…
+   ```
+2. **The bar checks it.** Every required section must be there, and every open task must be named. If anything is
+   missing, the file is saved but flagged and **nothing is compacted**:
+
+   ```
+   Handoff failed on October 6, 10:41:47pm: /…/handoffs/<name>-handoff.md is missing How to verify. Nothing was compacted.
+   ```
+3. **The bar saves and commits it** as `<name>-handoff.md`, named after the plan or the work (for example
+   `context-bar-compact-suggestions-handoff.md`), and removes the draft. It commits only that file, by path, so
+   nothing else you have staged goes with it. If git refuses (a hook, a merge in progress), the line says
+   `(not committed: <reason>)` and the compaction still runs.
+4. **The bar compacts the conversation.** The summary is focused on what just finished and told where the handoff
+   is; it keeps the [keep list](#every-compaction-keeps-what-matters) and the git state.
 
    ```
    Handoff completed on October 6, 10:41:47pm: /…/.claude/knowledge/handoffs/<name>-handoff.md
    Compacting… this can take a minute.
    ```
+5. **The result**, until your next message:
+
    ```
    Compact completed on October 6, 10:42:30pm: context went from 89% to 2%.
    Handoff: /…/.claude/knowledge/handoffs/<name>-handoff.md
    ```
 
-   Every handoff path in the bar is a link that opens the file. The result stays until your next message.
+**After it.** The handoff path is a link that opens the file. Your task list stays as it was, since the session goes
+on. A copy of the summary is saved to `~/.claude/handoffs/<project>/<time>-compact.md`. The bar makes no new
+suggestion for the next 10 minutes.
+
+### handoff & clear
+
+Use it when the next task has nothing to do with this one. Steps 1 to 3 are the same, then the bar runs `/clear`
+instead of compacting:
+
+```
+Clear completed on October 6, 10:42:05pm.
+Handoff: /…/.claude/knowledge/handoffs/<name>-handoff.md
+```
+
+The new conversation starts empty. The bar offers the handoff there
+(`↺ A handoff from your last session was saved … — continue from it?`), and **Continue** puts a request in the prompt
+box to read it, recreate the open tasks, run its checks and say where things stand. `/context-bar handoff` starts the
+same thing from the prompt.
 
 ### The handoff
 
