@@ -5,6 +5,7 @@
 import type { BoxProps, ButtonProps, ElementConstructor, RenderElement, TextProps } from 'claude-code'
 
 import type { CompactTip } from '../types'
+import { WARN } from './categories'
 import { tipText } from './compact'
 
 type Els = {
@@ -32,8 +33,8 @@ export type CompactArgs = {
   }
 }
 
-/** Everything on this line (a suggestion, what the bar is doing, what it did): yellow text, no background. */
-export const MESSAGE_FG = '#F2C76E'
+/** Everything on this line (a suggestion, what the bar is doing, what it did): the theme's warning colour, no background. */
+export const MESSAGE_FG = WARN
 
 /**
  * One line of a message, its handoff path (if it names it) drawn once and pressable: a press opens the file. A

@@ -13,7 +13,7 @@ import type {
 
 import type { DoctorNotice, DoctorReport } from '../types'
 import { topActions } from './auditFile'
-import { ACCENT, fmt, money } from './categories'
+import { ACCENT, BAD, GOOD, fmt, money } from './categories'
 import { shortModel } from './doctor'
 
 type Els = {
@@ -41,7 +41,7 @@ export type NoticeArgs = {
 }
 
 const SPINNER = ['◐', '◓', '◑', '◒'] as const
-const SAVES = '#8FD18B'
+const SAVES = GOOD
 const TOP = 5
 
 function seconds(ms: number): string {
@@ -98,7 +98,7 @@ function peekView(a: NoticeArgs, n: DoctorNotice) {
   if (n.state === 'failed') {
     return (
       <Box marginLeft={2}>
-        <Text color="#E8775A" wrap="wrap">
+        <Text color={BAD} wrap="wrap">
           {n.message ?? 'The AI call failed.'}
         </Text>
       </Box>

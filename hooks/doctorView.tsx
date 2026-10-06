@@ -10,7 +10,7 @@ import type {
 } from 'claude-code'
 
 import type { AiStep, DoctorReport, Effort, Finding, Row, Severity } from '../types'
-import { ACCENT, BORDER, FREE, fmt, pct } from './categories'
+import { ACCENT, BAD, BORDER, FREE, GOOD, MUTED, WARN, fmt, pct } from './categories'
 import { EXPECTED_OUTPUT, estimateCost, money, shortModel } from './doctor'
 
 type Els = {
@@ -55,12 +55,12 @@ export type DoctorViewArgs = {
 }
 
 const SEVERITY: Record<Severity, { glyph: string; color: string; word: string }> = {
-  high: { glyph: '●', color: '#E8775A', word: 'high' },
-  med: { glyph: '●', color: '#F2C76E', word: 'med' },
-  low: { glyph: '○', color: '#A0A8B8', word: 'low' },
-  info: { glyph: '·', color: '#6B7280', word: 'info' },
+  high: { glyph: '●', color: BAD, word: 'high' },
+  med: { glyph: '●', color: WARN, word: 'med' },
+  low: { glyph: '○', color: MUTED, word: 'low' },
+  info: { glyph: '·', color: MUTED, word: 'info' },
 }
-const SAVES = '#8FD18B'
+const SAVES = GOOD
 
 const CHEVRON_W = 2
 const CHIP_W = 16
@@ -155,7 +155,7 @@ export function doctorView(a: DoctorViewArgs) {
       </Box>
 
       {status && <Text dimColor>{status}</Text>}
-      {a.error && <Text color="#E8775A">{a.error}</Text>}
+      {a.error && <Text color={BAD}>{a.error}</Text>}
       {r?.summary && (
         <Box marginTop={1}>
           <Text italic>{r.summary}</Text>
@@ -220,7 +220,7 @@ function findingView(a: DoctorViewArgs, f: Finding, inner: number) {
           <Button
             key={`toggle:${f.id}`}
             plain
-            hover={{ color: chipColor === FREE ? '#A0A8B8' : chipColor, bold: true }}
+            hover={{ color: chipColor === FREE ? MUTED : chipColor, bold: true }}
             label={cut(f.ref ? `${f.ref}  ${f.title}` : f.title, titleW - 1)}
             onPress={() => a.on.toggle(f.id)}
           />
@@ -337,7 +337,7 @@ function chipsView(a: DoctorViewArgs, findings: readonly Finding[]) {
       {rows.map(row => {
         const count = findings.filter(f => f.category === row.name).length
         const on = a.filter === row.name
-        const lit = row.kind === 'free' ? '#A0A8B8' : row.display
+        const lit = row.kind === 'free' ? MUTED : row.display
         return (
           <Box key={`dchip:${row.name}`} flexDirection="row">
             <Text color={row.display}>{on ? '▣ ' : '■ '}</Text>

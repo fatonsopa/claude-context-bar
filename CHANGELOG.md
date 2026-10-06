@@ -5,6 +5,23 @@ All notable changes to context-bar. The format follows
 
 ## context-bar
 
+### [0.18.0] — 2026-10-07
+
+#### Added
+- Self-update. At most once an hour the bar reads the version on GitHub; when it is newer, it runs
+  `claude plugin update` in the background and shows `✓ context-bar <version> installed · Run /reload-plugins or
+  start a new session to apply`. Option `auto_update` (default `true`); `false` only announces a new version.
+  `/context-bar update` checks now. A `--plugin-dir` checkout is never updated. Versions before 0.18.0 need one
+  manual `claude plugin update context-bar@claude-context-bar`.
+- `/context-bar status` prints the last update check and `Drawn on:`, the surfaces drawing the bar.
+- README: a Surfaces section (terminal, Desktop, VS Code, mobile, and `claude.ai/code` in a browser).
+
+#### Changed
+- Light themes. Category colours are one palette that keeps 3:1 contrast on white, `#1E1E1E` and black, with
+  neighbouring categories distinguishable for protan and deutan readers. Every other colour (badge, buttons,
+  limits, severities, borders, messages) is a Claude Code theme key, so it follows the active theme on every
+  surface. The dark-theme requirement is gone.
+
 ### [0.17.8] — 2026-10-07
 
 #### Changed

@@ -6,12 +6,13 @@ tokens loaded on every request.
 
 ![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](docs/images/bar.png)
 
-Version `0.17.8` · [changelog](CHANGELOG.md)
+Version `0.18.0` · [changelog](CHANGELOG.md)
 
 ## Contents
 
 - [Context window constraints](#context-window-constraints)
 - [Requirements](#requirements)
+- [Surfaces](#surfaces)
 - [Install](#install)
 - [Update and uninstall](#update-and-uninstall)
 - [Usage](#usage)
@@ -31,8 +32,27 @@ Version `0.17.8` · [changelog](CHANGELOG.md)
 
 ## Requirements
 
-- Claude Code `2.1.275` or later. Built and tested on `2.1.292`.
-- A dark terminal theme. Light themes are not tuned.
+Claude Code `2.1.275` or later. Built and tested on `2.1.292`. Any theme: category colours keep a 3:1 contrast on
+light and dark backgrounds, and every other colour is a Claude Code theme key that follows the active theme.
+
+## Surfaces
+
+| Surface | Bar |
+|---|---|
+| Terminal | Renders above the prompt. The colour strip is clickable. |
+| Claude Code Desktop, `Code` tab | Renders above the prompt. The colour strip is clickable. |
+| VS Code extension | `/context-bar` opens the bar as a pane. |
+| Claude mobile app | `/context-bar` opens the bar as a pane. |
+| `claude.ai/code` in a browser | See below. |
+
+Claude Code `2.1.292` defines four plugin render surfaces: `terminal`, `desktop`, `vscode` and `mobile`. A browser
+session at `claude.ai/code` is one of two kinds:
+
+- **Remote Control session**: the session runs on the local machine and the plugin runs there. Its hooks apply to
+  prompts and compactions started from the browser. Run `/context-bar status` and read `Drawn on:` to list the
+  surfaces that draw the bar.
+- **Cloud session**: the session runs on Anthropic's infrastructure. It loads no locally installed plugins. Where
+  `/cloud-plugins` is available, run it on the machine that starts the cloud session to send its enabled plugins.
 
 ## Install
 
@@ -66,12 +86,26 @@ claude --plugin-dir <path>/claude-context-bar
 
 ## Update and uninstall
 
+The bar updates itself:
+
+1. At most once an hour, across sessions, it reads `version` from `.claude-plugin/plugin.json` on the `main` branch.
+2. When that version is newer than the running one, it runs `claude plugin update context-bar@claude-context-bar`
+   in the background.
+3. The bar shows `✓ context-bar <version> installed · Run /reload-plugins or start a new session to apply`. Select
+   `✕` to hide the line.
+
+Set `auto_update` to `false` to skip step 2: the bar shows `context-bar <version> is out` with the update command and
+a `[copy]` button. `/context-bar update` checks and installs immediately, whatever `auto_update` says. A checkout
+loaded with `--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS` is never updated.
+
+Manual update and uninstall:
+
 ```bash
 claude plugin update context-bar@claude-context-bar
 claude plugin uninstall context-bar@claude-context-bar
 ```
 
-Auto-update is off by default for this marketplace. Enable it in `/plugin` → `Marketplaces`.
+Versions before `0.18.0` have no self-update: run the update command once.
 
 ## Usage
 
@@ -198,7 +232,8 @@ Pane controls:
 | `/context-bar pane` | Open the bar as a pane. |
 | `/context-bar recalculate` | Replace the estimate with an exact count. |
 | `/context-bar handoff` | Run `handoff & clear`. |
-| `/context-bar status` | Print the version, running work, current suggestion, last handoff, open tasks and settings. |
+| `/context-bar update` | Check for a new version now and install it. See [Update and uninstall](#update-and-uninstall). |
+| `/context-bar status` | Print the version, running work, current suggestion, last handoff, open tasks, settings, the last update check and the surfaces drawing the bar. |
 | `/context-doctor` | Open the context doctor. |
 | `/context-doctor help` | Print usage. |
 
@@ -214,6 +249,7 @@ Open `/plugin` → `Installed` → `context-bar` → `Configure options`.
 | Offer a handoff for (hours) | `offer_handoff_hours` | `6` | Maximum handoff age for `Continue`. |
 | Handoff folder | `handoff_folder` | `.claude/knowledge/handoffs` | Handoff location, relative to the repository root. |
 | Commit handoffs | `commit_handoffs` | `true` | Commit each saved handoff file. The bar never pushes. |
+| Update automatically | `auto_update` | `true` | Install new versions in the background. `false`: only announce them. |
 
 ## Privacy and cost
 
@@ -224,6 +260,8 @@ Open `/plugin` → `Installed` → `context-bar` → `Configure options`.
   before sending.
 - The bar commits each handoff to the repository as one file and never pushes. Set `commit_handoffs` to `false` to
   disable commits.
+- The update check sends at most one request per hour to `raw.githubusercontent.com`. An update runs
+  `claude plugin update`, which fetches the marketplace repository from GitHub.
 
 ## Contributing
 

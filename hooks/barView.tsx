@@ -4,7 +4,7 @@
 import type { BoxProps, ButtonProps, ClientProps, ElementConstructor, RenderElement, TextProps } from 'claude-code'
 
 import type { Detail, Item, Row, Snapshot } from '../types'
-import { ACCENT, FREE, MARKER, fmt, pct } from './categories'
+import { ACCENT, BAD, BORDER, FREE, GOOD, MARKER, MUTED, WARN, fmt, pct } from './categories'
 import { limitsLine } from './limitsView'
 
 export type Els = {
@@ -75,18 +75,16 @@ function miniBar(share: number, width: number): string {
 
 function badgeColor(snap: Snapshot): string {
   const ratio = snap.total / Math.max(1, snap.threshold ?? snap.max)
-  if (ratio < 0.6) return '#8FD18B'
-  if (ratio < 0.85) return '#F2C76E'
-  return '#E8775A'
+  if (ratio < 0.6) return GOOD
+  if (ratio < 0.85) return WARN
+  return BAD
 }
 
 /**
- * Each button's own colour, from the categories' soft palette but on hues no category uses (mint, rose, sky), so a
- * button never reads as a category. Used the way the categories use theirs: a ■ in it before the label, and the label
- * lights up in it, bold, under the pointer. Each keeps a contrast of at least 4.5 : 1 on a dark terminal and stays
- * at least 15° of hue from every category colour (tests/compact.test.tsx measures both).
+ * Each button's own colour, a theme key, so it reads in the person's theme on every surface. Used the way the
+ * categories use theirs: a ■ in it before the label, and the label lights up in it, bold, under the pointer.
  */
-export const BUTTON_COLOR = { recalculate: '#7DCEF0', compact: '#78DCAA', clear: '#F07F8F' } as const
+export const BUTTON_COLOR = { recalculate: 'suggestion', compact: 'success', clear: 'error' } as const
 
 /** Before every button, as before every category. */
 export const SQUARE = '■ '
@@ -117,6 +115,8 @@ export type ViewArgs = {
   onOpenItem: (key: string) => void
   /** The context doctor's job line (./noticeView.tsx), drawn under the limits; null when there is none. */
   notice: RenderElement | null
+  /** A new version installed or out (./updateView.tsx), drawn under the doctor's line; null when there is none. */
+  update: RenderElement | null
   /** "handoff & compact", at any time (the same as the suggestion's main button). */
   onCompact: () => void
   /** A good moment to compact: "handoff & compact" lights up. */
@@ -135,7 +135,7 @@ export function view(a: ViewArgs) {
 
   if (!a.snap) {
     return (
-      <Box borderStyle="round" borderColor="#3A4252" paddingX={1} width={a.columns}>
+      <Box borderStyle="round" borderColor={BORDER} paddingX={1} width={a.columns}>
         <Text>
           <Text color={ACCENT}>◆ </Text>
           <Text bold>context</Text>
@@ -152,7 +152,7 @@ export function view(a: ViewArgs) {
   const detail = sel ? snap.details[sel.name] : undefined
 
   return (
-    <Box borderStyle="round" borderColor="#3A4252" paddingX={1} flexDirection="column" width={a.columns}>
+    <Box borderStyle="round" borderColor={BORDER} paddingX={1} flexDirection="column" width={a.columns}>
       <Box flexDirection="row" justifyContent="space-between">
         <Box flexDirection="row" columnGap={1}>
           <Text wrap="truncate">
@@ -179,7 +179,7 @@ export function view(a: ViewArgs) {
             <Text color={BUTTON_COLOR.clear}>{a.clearRecommended ? SUGGESTED_SQUARE : SQUARE}</Text>
             <Button key="clear-anytime" plain hover={{ color: BUTTON_COLOR.clear, bold: true }} label="handoff & clear" onPress={() => a.onClear()} />
           </Box>
-          <Text backgroundColor={badgeColor(snap)} color="#111111" bold>
+          <Text backgroundColor={badgeColor(snap)} color="inverseText" bold>
             {` ${Math.round(snap.percent)}% `}
           </Text>
         </Box>
@@ -200,6 +200,7 @@ export function view(a: ViewArgs) {
         </Box>
       </Box>
       {a.notice}
+      {a.update}
 
       {Client ? (
         <Client key="bar" module="./barClient.tsx" props={{ runs: runs(barCells(snap, inner)) }} width={inner} height={1} />
@@ -227,7 +228,7 @@ export function view(a: ViewArgs) {
                 plain
                 dimColor={off || row.kind === 'free'}
                 // under the pointer the label lights up in its category's colour, so it reads as clickable
-                hover={{ color: row.kind === 'free' ? '#A0A8B8' : row.display, bold: true, dimColor: false }}
+                hover={{ color: row.kind === 'free' ? MUTED : row.display, bold: true, dimColor: false }}
                 label={row.label}
                 onPress={() => a.onPick(row.name)}
               />

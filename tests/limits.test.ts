@@ -99,14 +99,14 @@ test('resetsIn says nothing for a past, current, missing or unreadable reset', (
 
 // ------------------------------------------------------------------ limitColor, meter, percent
 
-test('limitColor is green under 60, yellow under 85, red from 85', () => {
-  expect(limitColor(0)).toBe('#8FD18B')
-  expect(limitColor(59.9)).toBe('#8FD18B')
-  expect(limitColor(60)).toBe('#F2C76E')
-  expect(limitColor(84.9)).toBe('#F2C76E')
-  expect(limitColor(85)).toBe('#E8775A')
-  expect(limitColor(100)).toBe('#E8775A')
-  expect(limitColor(112)).toBe('#E8775A')
+test('limitColor is the theme success colour under 60, warning under 85, error from 85', () => {
+  expect(limitColor(0)).toBe('success')
+  expect(limitColor(59.9)).toBe('success')
+  expect(limitColor(60)).toBe('warning')
+  expect(limitColor(84.9)).toBe('warning')
+  expect(limitColor(85)).toBe('error')
+  expect(limitColor(100)).toBe('error')
+  expect(limitColor(112)).toBe('error')
 })
 
 test('the meter fills 6 cells in proportion and never overflows', () => {

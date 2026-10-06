@@ -3,6 +3,7 @@
 // nothing here reads the engine, the locale or a time zone.
 
 import type { Limit } from '../types'
+import { BAD, GOOD, WARN } from './categories'
 
 /** One window as the engine reports it (`SessionRateLimit`). */
 export type RawLimit = { kind: string; percentUsed: number; resetsAt?: string }
@@ -11,9 +12,9 @@ const SESSION = 'five_hour'
 const WEEK = 'seven_day'
 const SPEND = 'spend_limit'
 
-const GREEN = '#8FD18B'
-const YELLOW = '#F2C76E'
-const RED = '#E8775A'
+const GREEN = GOOD
+const YELLOW = WARN
+const RED = BAD
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE

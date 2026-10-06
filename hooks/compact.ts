@@ -226,7 +226,7 @@ export function shouldSuggest(a: {
 
 // ---------------------------------------------------------------- what the bar says
 
-function ago(ms: number): string {
+export function ago(ms: number): string {
   const min = Math.max(1, Math.round(ms / 60_000))
   if (min < 60) return `${min} min ago`
   const h = Math.round(min / 60)

@@ -5,21 +5,35 @@ import type { Row } from '../types'
 
 export type Cat = 'system' | 'tools' | 'mcp' | 'agents' | 'memory' | 'skills' | 'messages' | 'commands' | 'other'
 
+/**
+ * One categorical palette for every theme and surface: mid-lightness steps that keep at least 3 : 1 against a white,
+ * a #1E1E1E and a black background, in a fixed order whose neighbours stay apart for protan and deutan readers
+ * (tests/compact.test.tsx measures contrast). A category's colour never depends on the theme, so the strip, the
+ * legend and the doctor's chips match on every surface.
+ */
 export const PALETTE: Record<Cat, string> = {
-  system: '#6F9BD8',
-  tools: '#5EC4C4',
-  mcp: '#9B87F5',
-  agents: '#8FD18B',
-  memory: '#F2C76E',
-  skills: '#F4A6C6',
-  messages: '#E8775A',
-  commands: '#C8A2F0',
-  other: '#A0A8B8',
+  system: '#3987E5',
+  tools: '#D95926',
+  mcp: '#199E70',
+  agents: '#C98500',
+  memory: '#D55181',
+  skills: '#008300',
+  messages: '#9085E9',
+  commands: '#E66767',
+  other: '#8B8B8B',
 }
-export const FREE = '#3A4252'
-export const MARKER = '#F2C76E'
-export const ACCENT = '#E8775A'
-export const BORDER = '#3A4252'
+
+// Everything else is a Claude Code theme key, which each surface resolves in the person's own theme (light, dark,
+// colour-blind, ANSI): never a raw colour tuned for one background.
+export const FREE = 'subtle'
+export const MARKER = 'warning'
+export const ACCENT = 'claude'
+export const BORDER = 'subtle'
+/** A label that lights up under the pointer when it has no colour of its own (free space, a low finding). */
+export const MUTED = 'inactive'
+export const GOOD = 'success'
+export const WARN = 'warning'
+export const BAD = 'error'
 
 /** Which category a /context row is, by its name (the engine gives no other identity for it). */
 export function catOf(name: string): Cat {

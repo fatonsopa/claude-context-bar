@@ -43,6 +43,9 @@ import { asHandoffRun, asStoredHandoff, createCompactFlow, handoffKey, handoffRu
 import { errorText } from './errors'
 import { buildSnapshot, byTokens, current } from './snapshot'
 import { view } from './barView'
+import { UPDATE_KEY, asUpdateState, checkForUpdate, installedId, isNewer, updateStatus } from './update'
+import type { UpdateOps } from './update'
+import { installedText, updateCommand, updateLine } from './updateView'
 
 const snapshot = atom({ plugin: 'context-bar', key: 'snapshot' } as const, null)
 const selected = atom({ plugin: 'context-bar', key: 'selected' } as const, null)
@@ -69,6 +72,7 @@ const compactRunning = atom({ plugin: 'context-bar', key: 'compactRunning' } as 
 const compactResult = atom({ plugin: 'context-bar', key: 'compactResult' } as const, null)
 const compactLink = atom({ plugin: 'context-bar', key: 'compactLink' } as const, null)
 const compactTasks = atom({ plugin: 'context-bar', key: 'compactTasks' } as const, [])
+const updateNotice = atom({ plugin: 'context-bar', key: 'updateNotice' } as const, null)
 
 const PANE = 'context-bar'
 const TICK_MS = 1500
@@ -76,6 +80,8 @@ const FORCED_REFRESH_TICKS = 20 // 20 x 1.5 s = every 30 s even when nothing cha
 const COMPOSE_EVERY_MS = 300_000
 const FILE_SECTIONS_EVERY_MS = 60_000
 const WORK_CHECK_TICKS = 8 // 8 x 1.5 s: look for a running push, merge or rebase every 12 s
+const UPDATE_FIRST_TICK = 14 // 14 x 1.5 s: the first look for a new version, 20 s after the start
+const UPDATE_EVERY_TICKS = 2400 // 2400 x 1.5 s: then every hour (./update.ts reads GitHub at most once an hour)
 
 /** A suggestion to compact is showing (not the after-/clear "Continue" one): the top-line button lights up. */
 const isRecommended = (tip: CompactTip | null): boolean => !!tip && tip.reason !== 'resume'
@@ -167,6 +173,26 @@ export const register: Register = (on, options) => {
   const fileSections = new Map<string, { at: number; items: Item[] }>()
   let commands: CommandInfo[] = []
   let commandsAt = -Infinity
+  // new versions (./update.ts): off for a -p run, and for a checkout loaded with --plugin-dir
+  const isAutomatic = options.auto_update !== false
+  let updateOps: UpdateOps | null = null
+  let updating: Promise<void> | null = null
+  /** The version whose line the person closed: it is not shown again in this session. */
+  let dismissedUpdate: string | null = null
+
+  /** One check at a time; a check asked for while one runs waits for it. `asked`: /context-bar update, which installs. */
+  function lookForUpdate(asked = false): Promise<void> {
+    const o = updateOps
+    if (!o) return Promise.resolve()
+    if (updating) return updating
+    updating = checkForUpdate(asked ? { ...o, isAutomatic: true } : o, asked)
+      // a check never disturbs the session; /context-bar status says what the last one found
+      .catch(() => {})
+      .finally(() => {
+        updating = null
+      })
+    return updating
+  }
 
   async function sectionsOf(o: Ops, path: string, tokens: number, now: number, force: boolean): Promise<Item[]> {
     const cached = fileSections.get(path)
@@ -591,6 +617,28 @@ export const register: Register = (on, options) => {
       storeGet: key => $.store.get(key),
       storeSet: (key, value) => $.store.set(key, value),
     })
+    updateOps = e.isInteractive
+      ? {
+          root: $.plugin.root,
+          version: VERSION,
+          isAutomatic,
+          now: () => $.clock.now(),
+          fetch: async url => {
+            const r = await $.http.fetch(url)
+            return { ok: r.ok, text: r.text }
+          },
+          run: async argv => {
+            // no credential prompt can hold it: there is no terminal to answer one
+            const r = await $.process.run(argv, { timeoutMs: 120_000, env: { GIT_TERMINAL_PROMPT: '0' } })
+            return { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr }
+          },
+          storeGet: key => $.store.get(key),
+          storeSet: (key, value) => $.store.set(key, value),
+          show: notice => update($, updateNotice, () => (notice && notice.version === dismissedUpdate ? null : notice)),
+        }
+      : null
+    // after /reload-plugins brought the new version in, its "installed" line has done its job
+    await update($, updateNotice, n => (n && isNewer(n.version, VERSION) ? n : null))
     dirty = true
     timer?.cancel()
     timer = $.clock.every(TICK_MS, () => {
@@ -599,12 +647,13 @@ export const register: Register = (on, options) => {
       if (dirty && !inFlight) void refresh()
       if (jobRunning) void update($, tick, n => n + 1)
       if (ticks % WORK_CHECK_TICKS === 0) void flow.checkWork().catch(() => {})
+      if (ticks === UPDATE_FIRST_TICK || ticks % UPDATE_EVERY_TICKS === 0) void lookForUpdate()
     })
     await $.command.register({
       name: 'context-bar',
       description:
-        'Context bar: show it, `off` to hide, `pane` to open it as a pane, `recalculate` to count it exactly, `handoff` to hand off now, `status` for what it sees',
-      argumentHint: '[off|pane|recalculate|handoff|status]',
+        'Context bar: show it, `off` to hide, `pane` to open it as a pane, `recalculate` to count it exactly, `handoff` to hand off now, `update` to look for a new version, `status` for what it sees',
+      argumentHint: '[off|pane|recalculate|handoff|update|status]',
       immediate: true,
     })
     await $.command.register({
@@ -714,19 +763,37 @@ export const register: Register = (on, options) => {
       await flow.startHandoff()
       return { text: 'Asking Claude for a handoff. Then /clear runs.' }
     }
+    if (arg === 'update') {
+      const id = installedId($.plugin.root)
+      if (!id) return { text: `context-bar ${VERSION} runs from ${$.plugin.root}, a --plugin-dir checkout: git pull it to update.` }
+      if (!updateOps) return { text: 'context-bar looks for updates in an interactive session only.' }
+      dismissedUpdate = null
+      await lookForUpdate(true)
+      const n = await read($, updateNotice)
+      if (n?.state === 'installed') return { text: installedText(n.version) }
+      if (n?.state === 'available') return { text: `context-bar ${n.version} is out. Run: ${updateCommand(n.id)}` }
+      const state = asUpdateState(await $.store.get(UPDATE_KEY))
+      return { text: state.error ? `Could not check for a new version: ${state.error}` : `context-bar ${VERSION} is the newest version.` }
+    }
     if (arg === 'status') {
       const root = flow.repoMain() ?? (await $.session.cwd())
       const s = flow.snapshotForStatus()
+      const now = await $.clock.now()
+      const surfaces = await $.session.surfaces()
       return {
-        text: statusText({
-          ...s,
-          tip: await read($, compactTip),
-          lastHandoff: asStoredHandoff(await $.store.get(handoffKey(root))),
-          lastRun: asHandoffRun(await $.store.get(handoffRunKey(root))),
-          openTasks: await flow.openTaskCount(),
-          now: await $.clock.now(),
-          version: VERSION,
-        }),
+        text: [
+          statusText({
+            ...s,
+            tip: await read($, compactTip),
+            lastHandoff: asStoredHandoff(await $.store.get(handoffKey(root))),
+            lastRun: asHandoffRun(await $.store.get(handoffRunKey(root))),
+            openTasks: await flow.openTaskCount(),
+            now,
+            version: VERSION,
+          }),
+          updateStatus({ root: $.plugin.root, version: VERSION, isAutomatic, state: asUpdateState(await $.store.get(UPDATE_KEY)), now }),
+          `Drawn on: ${surfaces.length ? surfaces.join(', ') : 'no surface (a -p run)'}`,
+        ].join('\n'),
       }
     }
     await update($, isBandHidden, () => false)
@@ -807,6 +874,21 @@ export const register: Register = (on, options) => {
           openDoctor: () => void $.ui.open({ id: DOCTOR, title: 'Context doctor', focus: true, closeOnEscape: true }),
         },
       }),
+      update: updateLine({
+        els: $.ui.resolve(e),
+        notice: await read($, updateNotice),
+        on: {
+          dismiss: () =>
+            void update($, updateNotice, n => {
+              dismissedUpdate = n?.version ?? dismissedUpdate
+              return null
+            }),
+          copy: (text, surface) =>
+            void $.ui.copy({ text, surface }).then(r => {
+              $.ui.toast(r.isCopied ? `Copied: ${text}` : `Could not copy (${r.reason}) — ${text}`)
+            }),
+        },
+      }),
       compact: compactLine({
         els: $.ui.resolve(e),
         tip: await read($, compactTip),
@@ -859,6 +941,21 @@ export const register: Register = (on, options) => {
               $.ui.toast(r.isCopied ? `Copied: ${text}` : `Could not copy (${r.reason}) — ${text}`)
             }),
           openDoctor: () => void $.ui.open({ id: DOCTOR, title: 'Context doctor', focus: true, closeOnEscape: true }),
+        },
+      }),
+      update: updateLine({
+        els: $.ui.resolve(e),
+        notice: await read($, updateNotice),
+        on: {
+          dismiss: () =>
+            void update($, updateNotice, n => {
+              dismissedUpdate = n?.version ?? dismissedUpdate
+              return null
+            }),
+          copy: (text, surface) =>
+            void $.ui.copy({ text, surface }).then(r => {
+              $.ui.toast(r.isCopied ? `Copied: ${text}` : `Could not copy (${r.reason}) — ${text}`)
+            }),
         },
       }),
       compact: compactLine({

@@ -10,14 +10,17 @@ const GAP = 1
 const SEP = ' | '
 const DIVIDER = '| '
 
-/** Each window's label in its own colour, and the reset time in another, so the line reads at a glance. */
+/**
+ * Each window's label in its own colour, and the reset time in another, so the line reads at a glance. Theme keys,
+ * so each one reads in the person's theme.
+ */
 export const LIMIT_COLORS = {
-  session: '#6F9BD8',
-  week: '#9B87F5',
-  model: '#F4A6C6',
-  other: '#F2C76E',
-  reset: '#5EC4C4',
-  cost: '#8FD18B',
+  session: 'permission',
+  week: 'autoAccept',
+  model: 'bashBorder',
+  other: 'warning',
+  reset: 'planMode',
+  cost: 'success',
 } as const
 
 export function labelColor(kind: string): string {

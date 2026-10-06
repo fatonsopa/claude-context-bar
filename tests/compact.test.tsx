@@ -53,7 +53,8 @@ import {
 import { buildSnapshot } from '../hooks/snapshot'
 import { BUTTON_COLOR, SQUARE, SUGGESTED_SQUARE } from '../hooks/barView'
 import { MESSAGE_FG } from '../hooks/compactView'
-import { PALETTE } from '../hooks/categories'
+import { ACCENT, BAD, BORDER, FREE, GOOD, MARKER, MUTED, PALETTE, WARN } from '../hooks/categories'
+import { LIMIT_COLORS } from '../hooks/limitsView'
 import { VERSION } from '../hooks/version'
 import type { CompactTip, TrackedTask } from '../types'
 import { BAND, BREAKDOWN, MEASURE, START, USAGE, engine, run } from './fixtures'
@@ -972,6 +973,8 @@ test('/context-bar status says what the flow sees: what runs, what waits, the la
       'Open tasks the next handoff carries: 0',
       'Settings: suggest at 80,000 tokens · long output 15,000 · long skill run 5 min · offer handoffs for 6 h',
       'Handoffs go to: .claude/knowledge/handoffs in the repository, committed',
+      'Updates: none for a --plugin-dir checkout (git pull it)',
+      'Drawn on: terminal',
     ].join('\n'),
   )
   await $.tool.call({ tool: 'Bash', command: 'npm run build', run_in_background: true })
@@ -1136,7 +1139,13 @@ test('the buttons look like the categories: a ■ in their own colour, plain lab
   await ui.unmount()
 })
 
-test('every button colour and the suggestion band keep a contrast of at least 4.5 : 1', () => {
+// Claude Code's theme keys: each surface resolves them in the person's theme (light, dark, colour-blind, ANSI)
+const THEME_KEYS = new Set([
+  'text', 'inverseText', 'inactive', 'subtle', 'suggestion', 'remember', 'success', 'error', 'warning', 'merged',
+  'claude', 'permission', 'planMode', 'autoAccept', 'promptBorder', 'bashBorder', 'ide',
+])
+
+test('every category colour keeps 3 : 1 on a light, a dark and a black background', () => {
   // WCAG relative luminance and contrast ratio
   const lum = (hex: string) => {
     const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
@@ -1146,24 +1155,38 @@ test('every button colour and the suggestion band keep a contrast of at least 4.
     const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
     return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05)
   }
-  // the button colours, as they light up under the pointer, against a dark terminal's background
-  const DARK = '#1E1E1E'
-  for (const colour of Object.values(BUTTON_COLOR)) expect(ratio(colour, DARK)).toBeGreaterThanOrEqual(4.5)
-  // the same soft family as the categories, but never a category's hue: at least 15° from each, and from each other
-  const hue = (hex: string) => {
-    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number]
-    const max = Math.max(r, g, b)
-    const d = max - Math.min(r, g, b)
-    const h = d === 0 ? 0 : max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4
-    return (h * 60 + 360) % 360
+  for (const colour of Object.values(PALETTE)) {
+    for (const background of ['#FFFFFF', '#1E1E1E', '#000000']) expect(ratio(colour, background)).toBeGreaterThanOrEqual(3)
   }
-  const apart = (a: string, b: string) => Math.min(Math.abs(hue(a) - hue(b)), 360 - Math.abs(hue(a) - hue(b)))
-  const buttons = Object.values(BUTTON_COLOR)
-  const categories = Object.entries(PALETTE).filter(([name]) => name !== 'other').map(([, c]) => c)
-  for (const b of buttons) for (const c of categories) expect(apart(b, c)).toBeGreaterThanOrEqual(15)
-  for (const a of buttons) for (const b of buttons) if (a !== b) expect(apart(a, b)).toBeGreaterThanOrEqual(15)
-  // the line's yellow text (suggestion, status, result), on a dark terminal's background
-  expect(ratio(MESSAGE_FG, DARK)).toBeGreaterThanOrEqual(4.5)
+  // eight hues, none repeated
+  expect(new Set(Object.values(PALETTE)).size).toBe(Object.keys(PALETTE).length)
+})
+
+test('every other colour is a theme key, so it follows a light or a dark theme', () => {
+  const others = [...Object.values(BUTTON_COLOR), MESSAGE_FG, ...Object.values(LIMIT_COLORS), FREE, MARKER, ACCENT, BORDER, MUTED, GOOD, WARN, BAD]
+  for (const colour of others) expect(THEME_KEYS.has(colour)).toBe(true)
+})
+
+test('the band draws no colour tuned for one background, on any surface', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m "Add the export button"' })
+  const categories = new Set<string>(Object.values(PALETTE))
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...BAND, surface })
+    // the plugin's own tree, and the strip its surface module draws (the Client keyed `bar`)
+    const drawn = [...(await ui.findAll({})), ...(await ui.findAll({ in: 'bar' }))]
+    const colours = drawn
+      .flatMap(n => {
+        const p = n.props as { color?: unknown; backgroundColor?: unknown; borderColor?: unknown; hover?: { color?: unknown } }
+        return [p.color, p.backgroundColor, p.borderColor, p.hover?.color]
+      })
+      .filter((c): c is string => typeof c === 'string')
+    expect(colours.length).toBeGreaterThan(0)
+    for (const colour of colours) expect(THEME_KEYS.has(colour) || categories.has(colour)).toBe(true)
+    await ui.unmount()
+  }
 })
 
 test('a suggested button is marked, so it stands out whatever the colours or theme', async ($, on) => {

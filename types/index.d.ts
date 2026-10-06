@@ -176,6 +176,14 @@ export type TrackedTask = {
   blockedBy: string[]
 }
 
+/** A new version of the bar: installed and waiting for /reload-plugins or a new session, or out but not installed. */
+export type UpdateNotice = {
+  state: 'installed' | 'available'
+  version: string
+  /** The installed plugin's id, `context-bar@<marketplace>`. */
+  id: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'context-bar': {
@@ -217,6 +225,8 @@ declare module 'claude-code' {
       auditOpen: boolean
       /** The last audit file's Markdown, once read (or just written). */
       auditText: string | null
+      /** A new version installed or out, shown in the bar; null when there is none or it was dismissed. */
+      updateNotice: UpdateNotice | null
     }
   }
 }
