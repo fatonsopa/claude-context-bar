@@ -1,0 +1,13 @@
+{
+  "name": "ai-dev-architecture",
+  "description": "Claude Code mods by Faton Sopa: context-bar (context-window bar, /context-doctor, compact and handoff suggestions).",
+  "owner": {
+    "name": "Faton Sopa"
+  },
+  "plugins": [
+    {
+      "name": "context-bar",
+      "source": "./context-bar"
+    }
+  ]
+}
