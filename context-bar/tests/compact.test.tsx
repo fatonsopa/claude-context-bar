@@ -30,6 +30,8 @@ import {
   offersHandoff,
   pushed,
   pushedTo,
+  pushTarget,
+  hostName,
   settingsFrom,
   handoffFile,
   handoffRequest,
@@ -183,6 +185,15 @@ function world(
     }
     if (opts.commitFails && cmd.startsWith('git commit')) {
       return { value: { exitCode: 1, stdout: '', stderr: `${opts.commitFails}\n`, isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    // where a push went, when its output does not say: the branch's push remote and that remote's address
+    const remotes: Record<string, string> = { origin: 'git@github.com:me/app.git', backup: 'https://gitlab.com/me/app.git' }
+    if (cmd === 'git rev-parse --abbrev-ref @{push}') {
+      return { value: { exitCode: 0, stdout: 'origin/dev\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (cmd.startsWith('git remote get-url --push ')) {
+      const url = remotes[e.argv[e.argv.length - 1] ?? '']
+      return { value: { exitCode: url ? 0 : 2, stdout: url ? `${url}\n` : '', stderr: url ? '' : 'error: No such remote', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     const stdout = cmd.startsWith('git rev-parse')
       ? '/proj\n/proj/.git\n/proj/.git\n'
@@ -579,6 +590,27 @@ test('while subagents still run nothing is suggested; the moment is offered once
   await ui.unmount()
 })
 
+test('a push whose output does not name the remote (cut by `| tail -1`) still says where it went: git is asked', async ($, on) => {
+  const w = world(on, {
+    bash: {
+      'git push 2>&1 | tail -1': { stdout: '   548e39a..abc1234  dev -> dev\n', stderr: '' },
+      'cd ../mods && git push backup main 2>&1 | tail -1': { stdout: '   1a2b3c4..5d6e7f8  main -> main\n', stderr: '' },
+    },
+  })
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  // no remote named: the branch's push remote (origin), on GitHub
+  await $.tool.call({ tool: 'Bash', command: 'git push 2>&1 | tail -1' })
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toBe('✓ Pushed to GitHub')
+  expect(w.runs).toContainEqual(['git', 'remote', 'get-url', '--push', 'origin'])
+  // another folder and a named remote: that remote's address, on GitLab
+  await $.tool.call({ tool: 'Bash', command: 'cd ../mods && git push backup main 2>&1 | tail -1' })
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toBe('✓ Pushed to GitLab')
+  expect(w.runs).toContainEqual(['git', 'remote', 'get-url', '--push', 'backup'])
+  await ui.unmount()
+})
+
 test('a git push that sent something is a hard end; "Everything up-to-date" is not', async ($, on) => {
   world(on, {
     bash: {
@@ -796,6 +828,16 @@ test('git push output: what was sent is read from the "from -> to" line', () => 
   expect(pushed('git push', 'Everything up-to-date')).toBeNull()
   expect(pushed('git push --dry-run', '   548e39a..abc1234  dev -> dev')).toBeNull()
   expect(pushed('git status', '   548e39a..abc1234  dev -> dev')).toBeNull()
+  // what a push command names: the folder it ran in and the remote, skipping options and redirections
+  expect(pushTarget('git push origin dev')).toEqual({ dir: null, remote: 'origin' })
+  expect(pushTarget('git push')).toEqual({ dir: null, remote: null })
+  expect(pushTarget('cd ~/.claude/mods && git push -q 2>&1 | tail -2')).toEqual({ dir: '~/.claude/mods', remote: null })
+  expect(pushTarget('git -C "/x/my repo" push -u upstream main')).toEqual({ dir: '/x/my repo', remote: 'upstream' })
+  expect(pushTarget('git push -o ci.skip --force-with-lease origin main')).toEqual({ dir: null, remote: 'origin' })
+  expect(pushTarget('git push --repo=backup')).toEqual({ dir: null, remote: 'backup' })
+  expect(pushTarget('git push git@gitlab.com:me/app.git main')).toEqual({ dir: null, remote: 'git@gitlab.com:me/app.git' })
+  expect(hostName('git@gitlab.com:me/app.git')).toBe('GitLab')
+  expect(hostName('origin')).toBeNull()
   // where it went, from the "To <remote>" line, for any remote
   expect(pushedTo('To github.com:me/app.git\n   548e39a..abc1234  dev -> dev')).toBe('GitHub')
   expect(pushedTo('To git@github.com:fatonsopa/ai-dev-architecture.git\n * [new branch]      main -> main')).toBe('GitHub')

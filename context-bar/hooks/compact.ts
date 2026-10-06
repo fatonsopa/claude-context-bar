@@ -117,17 +117,43 @@ const KNOWN_HOSTS: { readonly [host: string]: string } = {
   'ssh.dev.azure.com': 'Azure DevOps',
 }
 
-/**
- * Where a `git push` went, from its `To <remote>` line: `GitHub` for github.com, any other host as it is; null for a
- * push to a folder on this machine or output with no such line.
- */
-export function pushedTo(output: string): string | null {
-  const url = /^To (\S+)/m.exec(output)?.[1]
-  if (!url) return null
+/** A remote's address as people name it: `GitHub` for github.com, any other host as it is; null for a local folder. */
+export function hostName(url: string): string | null {
   // https://host/…, ssh://user@host:port/…, or the scp form user@host:path
   const host = /^[a-z][\w+.-]*:\/\/(?:[^@/]+@)?([^/:]+)/i.exec(url)?.[1] ?? /^(?:[^@/:]+@)?([^/:]+):/.exec(url)?.[1] ?? null
   if (!host || !host.includes('.')) return null
   return KNOWN_HOSTS[host.toLowerCase()] ?? host.toLowerCase()
+}
+
+/** Where a `git push` went, from its `To <remote>` line; null when the output has no such line (`-q`, `| tail -1`). */
+export function pushedTo(output: string): string | null {
+  const url = /^To (\S+)/m.exec(output)?.[1]
+  return url ? hostName(url) : null
+}
+
+/** `git push` options that take the next word as their value. */
+const PUSH_VALUE_OPTIONS = ['-o', '--push-option', '--receive-pack', '--exec']
+
+/**
+ * What a `git push` command names: the folder it ran in (`cd <dir> && …`, `git -C <dir> push`) and the remote (a name
+ * or an address), each null when the command does not say.
+ */
+export function pushTarget(command: string): { dir: string | null; remote: string | null } {
+  const unquote = (s: string | undefined) => (s ? s.replace(/^(["'])(.*)\1$/, '$2') : null)
+  const word = `("[^"]+"|'[^']+'|[^\\s;&|]+)`
+  const dir =
+    unquote(new RegExp(`\\bgit\\s+-C\\s+${word}\\s+push\\b`).exec(command)?.[1]) ??
+    unquote(new RegExp(`(?:^|&&|;)\\s*cd\\s+${word}\\s*(?:&&|;)[^|]*?\\bgit\\b[^|;&]*\\bpush\\b`).exec(command)?.[1])
+  const args = (new RegExp(`\\bgit\\b(?:\\s+-C\\s+${word})?\\s+push\\b([^|;&]*)`).exec(command)?.[2] ?? '').trim().split(/\s+/).filter(Boolean)
+  let remote: string | null = null
+  for (let i = 0; i < args.length && remote === null; i++) {
+    const a = args[i] ?? ''
+    if (a.startsWith('--repo=')) remote = a.slice('--repo='.length)
+    else if (PUSH_VALUE_OPTIONS.includes(a) || a === '--repo') i++
+    else if (/^\d*>/.test(a)) continue
+    else if (!a.startsWith('-')) remote = unquote(a)
+  }
+  return { dir, remote }
 }
 
 const TEST_RUN =

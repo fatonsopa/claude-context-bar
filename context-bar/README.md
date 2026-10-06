@@ -13,7 +13,7 @@ in that colour under the pointer), with a | between them:
 - **handoff & clear**: the same handoff, then `/clear` goes in the prompt box for your Enter.
 
 At a good moment the right button's ■ becomes ▣ and a yellow line under the colour strip says what just finished,
-and nothing more: "✓ Changes committed", "✓ Pushed to GitHub" (the host is read from the push; any remote works),
+and nothing more: "✓ Changes committed", "✓ Pushed to GitHub" (the host is read from the push, or asked of git when the output is cut; any remote works),
 "✓ /<skill> finished". There is no Later: the suggestion stays until you press one of the two buttons, a compaction
 shrinks the context, or a newer moment replaces it.
 

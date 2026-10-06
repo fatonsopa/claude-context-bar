@@ -44,6 +44,8 @@ import {
   largeOutputText,
   pushed,
   pushedTo,
+  pushTarget,
+  hostName,
   missingSections,
   projectSlug,
   resumePrompt,
@@ -221,6 +223,35 @@ export function createCompactFlow(settings: BarSettings) {
     await t.setTip({ reason, at: now, what, handoff: null, ...(to ? { to } : {}) })
   }
 
+  /**
+   * Where a push went when its output does not say (`git push -q`, `git push 2>&1 | tail -1`): asked of git itself, in
+   * the folder the command ran in, for the remote it named, else the branch's push remote, else `origin`.
+   */
+  async function pushHost(t: CompactOps, command: string): Promise<string | null> {
+    const target = pushTarget(command)
+    if (target.remote && hostName(target.remote)) return hostName(target.remote)
+    const cwd = await t.cwd()
+    const home = (await t.home()) ?? ''
+    const dir = !target.dir
+      ? cwd
+      : target.dir.startsWith('~')
+        ? `${home}${target.dir.slice(1)}`
+        : target.dir.startsWith('/')
+          ? target.dir
+          : `${cwd}/${target.dir}`
+    const git = async (args: string[]): Promise<string> => {
+      try {
+        const x = await t.run(['git', ...args], dir)
+        return x.exitCode === 0 ? x.stdout.trim() : ''
+      } catch {
+        return ''
+      }
+    }
+    const remote = target.remote ?? ((await git(['rev-parse', '--abbrev-ref', '@{push}'])).split('/')[0] || 'origin')
+    const url = await git(['remote', 'get-url', '--push', remote])
+    return url ? hostName(url) : null
+  }
+
   /** After each main-conversation tool call: a skill used, a test run, a commit, a push, a very long answer. */
   async function afterTool(
     tool: string,
@@ -242,7 +273,7 @@ export function createCompactFlow(settings: BarSettings) {
       const c = isError ? null : committed(call.command, out)
       if (c) await suggest('saved', c.subject)
       const p = isError ? null : pushed(call.command, out)
-      if (p) await suggest('pushed', p, pushedTo(out))
+      if (p) await suggest('pushed', p, pushedTo(out) ?? (await pushHost(t, call.command)))
     }
     const tokens = estimate(out)
     if (isLargeOutput(tool, tokens, settings.longOutputTokens)) {
