@@ -5,6 +5,11 @@ All notable changes to the mods in this repository. The format follows
 
 ## context-bar
 
+### [0.17.6] — 2026-10-07
+
+#### Changed
+- The documentation is one short README at the repository root, mostly tables; `context-bar/README.md` links to it.
+
 ### [0.17.5] — 2026-10-07
 
 #### Changed
