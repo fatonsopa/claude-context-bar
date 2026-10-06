@@ -176,6 +176,8 @@ as the button, from the prompt.
    ↺ A handoff from your last session was saved 1 min ago — continue from it?      Continue
    ```
 
+   ![The bar after handoff & clear: "Clear completed on October 6, 11:56:50pm.", the handoff path to click under it, and the offer to continue from the handoff with its Continue button](docs/images/handoff-clear-done.png)
+
    If `/clear` itself fails, the handoff is still saved and the line says so:
    `Clear failed on …: <reason>. The handoff is saved: <path>. Type /clear yourself.`
 

@@ -5,6 +5,11 @@ All notable changes to the mods in this repository. The format follows
 
 ## context-bar
 
+### [0.17.4] — 2026-10-06
+
+#### Added
+- README: a screenshot of the **handoff & clear** result.
+
 ### [0.17.3] — 2026-10-06
 
 #### Fixed
