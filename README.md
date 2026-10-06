@@ -64,7 +64,7 @@ Auto-update is off for this marketplace by default. Turn it on in `/plugin` → 
 
 ## Usage
 
-### The bar
+### The Context Bar
 
 ![The bar with its categories open](context-bar/docs/images/bar-categories.png)
 
