@@ -32,6 +32,10 @@ import {
   pushedTo,
   pushTarget,
   hostName,
+  nextTasks,
+  openTasks,
+  missingTasks,
+  resumePrompt,
   settingsFrom,
   handoffFile,
   handoffRequest,
@@ -52,7 +56,7 @@ import { BUTTON_COLOR, SQUARE, SUGGESTED_SQUARE } from '../hooks/barView'
 import { MESSAGE_FG } from '../hooks/compactView'
 import { PALETTE } from '../hooks/categories'
 import { VERSION } from '../hooks/version'
-import type { CompactTip } from '../types'
+import type { CompactTip, TrackedTask } from '../types'
 import { BAND, BREAKDOWN, MEASURE, START, USAGE, engine, run } from './fixtures'
 
 // ---------------------------------------------------------------- a session with a long conversation
@@ -230,8 +234,12 @@ function world(
       tokensAfter: 90_000,
     }
   })
+  let lastTaskId = 0
   on('tool.call', ($, e) => {
-    const call = e as unknown as { tool: string; command?: string }
+    const call = e as unknown as { tool: string; command?: string; subject?: string; taskId?: string }
+    // the task tools, answered as Claude Code answers them: a new id per task, success for an update
+    if (call.tool === 'TaskCreate') return { result: { task: { id: String(++lastTaskId), subject: call.subject ?? '' } } }
+    if (call.tool === 'TaskUpdate') return { result: { success: true, taskId: call.taskId ?? '', updatedFields: [] } }
     if (call.tool === 'Bash' && call.command?.startsWith('git commit')) {
       return { result: { stdout: '[dev abc1234] Add the export button\n 2 files changed', stderr: '', interrupted: false } }
     }
@@ -720,7 +728,7 @@ test('a new session (after /clear or a fresh start) offers the latest handoff; C
   expect((await ui.find({ key: 'compact-resume' }))?.text).toBe('Continue')
   await ui.press({ key: 'compact-resume' })
   expect(w.filled[0] ?? '').toBe(
-    `Read ${path}, then follow its "How to resume": check the folder and branch, run "How to verify", and tell me in two lines where things stand and what you will do first.`,
+    `Read ${path}. If it has a "Task list to recreate on resume" section, first recreate those tasks exactly as it says. Then follow its "How to resume": check the folder and branch, run "How to verify", and tell me in two lines where things stand and what you will do first.`,
   )
   expect(await ui.find({ key: 'compact-resume' })).toBeUndefined()
   await ui.unmount()
@@ -940,6 +948,7 @@ test('/context-bar status says what the flow sees: what runs, what waits, the la
       'Busy: nothing',
       'Suggestion shown: none',
       'Last handoff: /home/me/.claude/handoffs/proj/20261006-170000-handoff.md, 1 min ago',
+      'Open tasks the next handoff carries: 0',
       'Settings: suggest at 80,000 tokens · long output 15,000 · long skill run 5 min · offer handoffs for 6 h',
       'Handoffs go to: .claude/knowledge/handoffs in the repository, committed',
     ].join('\n'),
@@ -1199,3 +1208,171 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.unmount()
   })
 }
+
+// ---------------------------------------------------------------- open tasks, carried across a handoff
+
+const STATE = { folder: '/proj', branch: 'dev', head: { sha: 'abc1234', subject: 'Add X' }, changed: [], busy: IDLE }
+const task = (id: string, subject: string, status: TrackedTask['status'] = 'pending', blockedBy: string[] = []): TrackedTask => ({
+  id,
+  subject,
+  description: `About: ${subject}`,
+  activeForm: null,
+  status,
+  blockedBy,
+})
+
+test('the bar keeps the task list exactly as Claude makes and changes it', () => {
+  let tasks: TrackedTask[] = []
+  const created = (id: string, subject: string) => ({ task: { id, subject } })
+  tasks = nextTasks(tasks, 'TaskCreate', { subject: 'Write the import parser', description: 'CSV in, rows out', activeForm: 'Writing the parser' }, created('1', 'Write the import parser'))
+  tasks = nextTasks(tasks, 'TaskCreate', { subject: 'Add the import page', description: 'Upload and preview' }, created('2', 'Add the import page'))
+  tasks = nextTasks(tasks, 'TaskCreate', { subject: 'Ship the import', description: 'Push, then release' }, created('3', 'Ship the import'))
+  tasks = nextTasks(tasks, 'TaskUpdate', { taskId: '1', status: 'in_progress' }, { success: true, taskId: '1', updatedFields: ['status'] })
+  tasks = nextTasks(tasks, 'TaskUpdate', { taskId: '2', addBlocks: ['3'] }, { success: true, taskId: '2', updatedFields: ['blocks'] })
+  expect(tasks[0]).toEqual({ id: '1', subject: 'Write the import parser', description: 'CSV in, rows out', activeForm: 'Writing the parser', status: 'in_progress', blockedBy: [] })
+  expect(tasks.map(t => [t.id, t.status, t.blockedBy])).toEqual([
+    ['1', 'in_progress', []],
+    ['2', 'pending', []],
+    ['3', 'pending', ['2']],
+  ])
+  // a refused create, a failed update, an id the bar never saw, and any other tool change nothing
+  expect(nextTasks(tasks, 'TaskCreate', { subject: 'x', description: 'y' }, undefined)).toEqual(tasks)
+  expect(nextTasks(tasks, 'TaskUpdate', { taskId: '1', status: 'completed' }, { success: false, taskId: '1', updatedFields: [] })).toEqual(tasks)
+  expect(nextTasks(tasks, 'TaskUpdate', { taskId: '99', status: 'completed' }, { success: true })).toEqual(tasks)
+  expect(nextTasks(tasks, 'Bash', { command: 'ls' }, {})).toEqual(tasks)
+  // a done task leaves the open list; a deleted one is gone and stops blocking
+  expect(openTasks(nextTasks(tasks, 'TaskUpdate', { taskId: '1', status: 'completed' }, { success: true })).map(t => t.id)).toEqual(['2', '3'])
+  expect(nextTasks(tasks, 'TaskUpdate', { taskId: '2', status: 'deleted' }, { success: true }).map(t => [t.id, t.blockedBy])).toEqual([
+    ['1', []],
+    ['3', []],
+  ])
+  // TodoWrite replaces the whole list
+  const todos = [
+    { content: 'Fix the failing test', status: 'in_progress', activeForm: 'Fixing the failing test' },
+    { content: 'Commit', status: 'pending', activeForm: 'Committing' },
+  ]
+  expect(nextTasks(tasks, 'TodoWrite', { todos }, {}).map(t => [t.id, t.subject, t.status, t.activeForm])).toEqual([
+    ['todo-1', 'Fix the failing test', 'in_progress', 'Fixing the failing test'],
+    ['todo-2', 'Commit', 'pending', 'Committing'],
+  ])
+})
+
+test('the handoff request names every open task; the saved file holds them exactly, to recreate on resume', () => {
+  const open = [task('1', 'Write the import parser', 'in_progress'), task('2', 'Add the import page'), task('3', 'Ship the import', 'pending', ['2'])]
+  const req = handoffRequest({ project: 'app', at: 0, state: STATE, draft: '/d.md', tasks: open })
+  expect(req).toContain('## Open tasks (required): the task list holds 3 open tasks, listed below. Write one "### <n>. <subject>" for each')
+  expect(req).toContain('   1. [in_progress] Write the import parser — About: Write the import parser')
+  expect(req).toContain('   3. [pending] Ship the import — About: Ship the import (blocked by 2)')
+  // right after Next steps
+  expect(req.indexOf('## Open tasks')).toBeGreaterThan(req.indexOf('## Next steps'))
+  expect(req.indexOf('## Open tasks')).toBeLessThan(req.indexOf('## How to verify'))
+  // no open tasks: no such section, and nothing to check
+  expect(handoffRequest({ project: 'app', at: 0, state: STATE, draft: '/d.md', tasks: [] })).not.toContain('## Open tasks')
+  expect(missingTasks(HANDOFF_BODY, [])).toEqual([])
+
+  // each open task must be named in "Open tasks", by its exact subject
+  const twoOfThree = `${HANDOFF_BODY}\n## Open tasks\n### 1. Write the import parser\nStatus: in_progress\nContext: parser.ts half done\n### 2. Add the import page\nStatus: pending\nContext: not started`
+  expect(missingTasks(twoOfThree, open)).toEqual(['Ship the import'])
+  expect(missingTasks(HANDOFF_BODY, open)).toEqual(['Write the import parser', 'Add the import page', 'Ship the import'])
+  // a subject named outside the section does not count
+  expect(missingTasks(`${twoOfThree}\n## How to resume\nShip the import later`, open)).toEqual(['Ship the import'])
+
+  // the saved file: the exact list, written by the bar, dependencies by number
+  const file = handoffFile({ body: twoOfThree, at: 0, state: STATE, path: '/p/x-handoff.md', tasks: open })
+  expect(file).toContain('## Task list to recreate on resume')
+  expect(JSON.parse(/```json\n([\s\S]*?)\n```/.exec(file)?.[1] ?? 'null')).toEqual([
+    { n: 1, subject: 'Write the import parser', description: 'About: Write the import parser', activeForm: null, status: 'in_progress', blockedBy: [] },
+    { n: 2, subject: 'Add the import page', description: 'About: Add the import page', activeForm: null, status: 'pending', blockedBy: [] },
+    { n: 3, subject: 'Ship the import', description: 'About: Ship the import', activeForm: null, status: 'pending', blockedBy: [2] },
+  ])
+  expect(file).toContain('**Read /p/x-handoff.md, recreate its open tasks, and follow its "How to resume".**')
+  expect(handoffFile({ body: HANDOFF_BODY, at: 0, state: STATE, path: '/p/x-handoff.md' })).not.toContain('Task list to recreate')
+  // a compaction's handoff carries them too
+  expect(handoffMarkdown({ project: 'app', at: 0, state: STATE, summary: 'S', previous: null, tasks: open })).toContain('## Task list to recreate on resume')
+  // and the resume request asks for them first
+  expect(resumePrompt('/p/x-handoff.md')).toContain('If it has a "Task list to recreate on resume" section, first recreate those tasks exactly as it says. Then')
+})
+
+/** Four tasks as Claude makes them: one done, one under way, two waiting, the last blocked by the one before it. */
+async function makeTasks($: Parameters<TestBody>[0]) {
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Write the export tests', description: 'Done earlier' })
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Write the import parser', description: 'CSV in, rows out', activeForm: 'Writing the import parser' })
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Add the import page', description: 'Upload and preview' })
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Ship the import', description: 'Push, then release' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '2', status: 'in_progress' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '4', addBlockedBy: ['3'] })
+}
+
+const OPEN_TASKS_BODY = [
+  HANDOFF_BODY,
+  '## Open tasks',
+  '### 1. Write the import parser',
+  'Status: in_progress',
+  'Context: src/import/parser.ts reads the header; rows next. Run `npm test -- parser`.',
+  '### 2. Add the import page',
+  'Status: pending',
+  'Context: not started; the route is /import.',
+  '### 3. Ship the import',
+  'Status: pending',
+  'Context: after the page; #push then #release.',
+].join('\n')
+
+test('"handoff & clear" with open tasks: each one is in the handoff, saved exactly, and the next session recreates them', async ($, on) => {
+  const w = world(on)
+  await skillRunJustEnded($)
+  await makeTasks($)
+  expect((await $.command.run(run('status'))).text).toContain('Open tasks the next handoff carries: 3')
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'clear-anytime' })
+  await w.clock.settle()
+
+  // 1: the request names the three open tasks, the done one left out
+  const req = w.submitted[0] ?? ''
+  expect(req).toContain('the task list holds 3 open tasks')
+  expect(req).toContain('   1. [in_progress] Write the import parser — CSV in, rows out')
+  expect(req).toContain('   3. [pending] Ship the import — Push, then release (blocked by 2)')
+  expect(req).not.toContain('Write the export tests')
+
+  // 2: Claude names every task: saved with the exact list, committed, then /clear runs
+  await claudeWrites($, w, OPEN_TASKS_BODY)
+  const saved = w.written.find(f => f.path === SAVED)?.text ?? ''
+  expect(saved).toContain('## Open tasks\n### 1. Write the import parser')
+  const list = JSON.parse(/```json\n([\s\S]*?)\n```/.exec(saved)?.[1] ?? 'null') as { subject: string; status: string; blockedBy: number[]; activeForm: string | null }[]
+  expect(list.map(t => [t.subject, t.status, t.blockedBy])).toEqual([
+    ['Write the import parser', 'in_progress', []],
+    ['Add the import page', 'pending', []],
+    ['Ship the import', 'pending', [2]],
+  ])
+  expect(list[0]?.activeForm).toBe('Writing the import parser')
+  expect(await bandText(ui)).toMatch(completedOn(SAVED))
+  await w.clock.settle()
+  expect(w.commands).toEqual(['clear'])
+
+  // 3: the new conversation starts with an empty task list, and so does the bar's copy
+  await $.classic.SessionStart({ source: 'clear' })
+  expect((await $.command.run(run('status'))).text).toContain('Open tasks the next handoff carries: 0')
+  await ui.unmount()
+})
+
+test('a handoff that leaves out an open task is flagged, and nothing is cleared', async ($, on) => {
+  const w = world(on)
+  await skillRunJustEnded($)
+  await makeTasks($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'clear-anytime' })
+  await claudeWrites($, w, OPEN_TASKS_BODY.replace('### 3. Ship the import', '### 3. Release it'))
+  expect(await bandText(ui)).toMatch(new RegExp(`^Handoff failed on .*: ${esc(SAVED)} is missing open task "Ship the import"\\. Nothing was cleared\\.$`))
+  await w.clock.settle()
+  expect(w.commands).toEqual([])
+  await ui.unmount()
+})
+
+test('tasks a subagent makes are its own: they are not carried into the handoff', async ($, on) => {
+  world(on)
+  await skillRunJustEnded($)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Subagent step', description: 'its own', agentId: 'helper-1' } as never)
+  expect((await $.command.run(run('status'))).text).toContain('Open tasks the next handoff carries: 0')
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Main step', description: 'the person\'s' })
+  expect((await $.command.run(run('status'))).text).toContain('Open tasks the next handoff carries: 1')
+})

@@ -4,7 +4,7 @@
 
 import type { AgentInfo, SessionCompactResult, SessionCompactTrigger } from 'claude-code'
 
-import type { CompactTip, Snapshot } from '../types'
+import type { CompactTip, Snapshot, TrackedTask } from '../types'
 import { estimate } from './categories'
 import {
   IDLE,
@@ -44,6 +44,10 @@ import {
   largeOutputText,
   pushed,
   pushedTo,
+  TASK_TOOLS,
+  nextTasks,
+  openTasks,
+  missingTasks,
   pushTarget,
   hostName,
   missingSections,
@@ -84,6 +88,9 @@ export type CompactOps = {
   setResult: (v: string | null) => Promise<unknown>
   /** The handoff file the bar's line names, drawn there as a link to the file. */
   setLink: (path: string | null) => Promise<unknown>
+  /** This session's task list as the bar saw it made and changed; kept across reloads of the mod. */
+  getTasks: () => Promise<TrackedTask[]>
+  setTasks: (tasks: TrackedTask[]) => Promise<unknown>
   /** Runs /clear, as the person typing it would. */
   clear: () => Promise<unknown>
   /** Removes one file the flow itself made (its handoff draft). */
@@ -260,6 +267,8 @@ export function createCompactFlow(settings: BarSettings) {
   ): Promise<void> {
     const t = compactOps
     if (!t) return
+    // the task list, exactly: every task made or changed, so a handoff can carry the open ones
+    if (TASK_TOOLS.includes(tool)) await t.setTasks(nextTasks(await t.getTasks(), tool, call, (r as { result?: unknown } | null)?.result))
     const out = outputOf(r)
     const background = backgroundTaskOf(r)
     if (background) {
@@ -327,7 +336,8 @@ export function createCompactFlow(settings: BarSettings) {
       const now = await t.now()
       const path = handoffPath(place.home, place.root, now, 'compact')
       const previous = asStoredHandoff(await t.storeGet(handoffKey(place.root)))
-      const text = handoffMarkdown({ project: projectSlug(place.root), at: now, state, summary, previous: previous?.path ?? null })
+      const tasks = openTasks(await t.getTasks())
+      const text = handoffMarkdown({ project: projectSlug(place.root), at: now, state, summary, previous: previous?.path ?? null, tasks })
       await saveHandoff(t, place.root, path, now, text)
       return path
     } catch {
@@ -407,6 +417,8 @@ export function createCompactFlow(settings: BarSettings) {
     at: number
     state: MachineState
     fallbackName: string
+    /** The open tasks when it was asked for: each must be in the handoff, and they are saved with it for resume. */
+    tasks: TrackedTask[]
     /** What follows a saved handoff, as the button says: a compaction, or /clear. */
     then: 'clear' | 'compact'
     /** What had just finished when it was asked for (the suggestion's subject), for the compaction's focus. */
@@ -440,12 +452,13 @@ export function createCompactFlow(settings: BarSettings) {
     await removeDrafts(t, dir)
     const draft = draftHandoffPath(dir, at)
     await t.run(['mkdir', '-p', dir], r?.root ?? root).catch(() => undefined)
-    pendingHandoff = { draft, dir, root, repoRoot: r?.root ?? null, at, state, fallbackName: fallbackHandoffName(state.branch), then, finished }
+    const tasks = openTasks(await t.getTasks())
+    pendingHandoff = { draft, dir, root, repoRoot: r?.root ?? null, at, state, fallbackName: fallbackHandoffName(state.branch), tasks, then, finished }
     await t.setTip(null)
     await t.setRunning(RUNNING_TEXT.handoff)
     // Submitted from a dispatch of its own: the engine refuses a submit from inside a command hook ("it would wait on
     // the turn this hook is holding"). Queued, not awaited: it runs as a turn of its own once the session is idle.
-    const request = handoffRequest({ project: projectSlug(r?.main ?? place?.root ?? state.folder), at, state, draft })
+    const request = handoffRequest({ project: projectSlug(r?.main ?? place?.root ?? state.folder), at, state, draft, tasks })
     t.later(0, () => {
       void t.submit(request).catch(async (err: unknown) => {
         pendingHandoff = null
@@ -481,10 +494,11 @@ export function createCompactFlow(settings: BarSettings) {
     if (!body && !isAborted) body = extractHandoff(answer)
     await t.remove(p.draft).catch(() => undefined)
     if (!body) return failed(t, p, null, 'no handoff was written')
-    const missing = missingSections(body)
+    // every required section, and every open task by its exact subject
+    const missing = [...missingSections(body), ...missingTasks(body, p.tasks).map(subject => `open task "${subject}"`)]
     const path = await chooseHandoffPath(t, p, handoffName(body, p.fallbackName))
     try {
-      await saveHandoff(t, p.root, path, p.at, handoffFile({ body, at: p.at, state: p.state, path, missing }))
+      await saveHandoff(t, p.root, path, p.at, handoffFile({ body, at: p.at, state: p.state, path, missing, tasks: p.tasks }))
     } catch (err) {
       return failed(t, p, null, `it could not be saved (${errorText(err)})`)
     }
@@ -649,6 +663,8 @@ export function createCompactFlow(settings: BarSettings) {
     startHandoff,
     /** What `/context-bar status` reports. */
     snapshotForStatus: () => ({ busy, turnRunning, waiting: deferred ? `${deferred.reason}${deferred.what ? ` (${deferred.what})` : ''}` : null, settings }),
+    /** How many open tasks the next handoff carries, for /context-bar status. */
+    openTaskCount: async () => (compactOps ? openTasks(await compactOps.getTasks()).length : 0),
     prepareCompact,
     completeCompact,
     onTurnStart: () => {

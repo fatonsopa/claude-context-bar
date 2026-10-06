@@ -3,7 +3,7 @@
 // Pure functions only; ./register.tsx wires them to the engine.
 
 import type { SessionMessage } from 'claude-code'
-import type { Snapshot, CompactTip } from '../types'
+import type { Snapshot, CompactTip, TrackedTask } from '../types'
 import { catOf, shortPath } from './categories'
 
 /** No new suggestion this soon after a compaction. */
@@ -391,6 +391,8 @@ export function statusText(a: {
   lastHandoff: { path: string; at: number } | null
   /** The last handoff run: where it went and how it ended (committed, or why not). */
   lastRun: { path: string | null; at: number; outcome: string } | null
+  /** Open tasks in the task list, which the next handoff carries. */
+  openTasks: number
   now: number
   version: string
 }): string {
@@ -409,6 +411,7 @@ export function statusText(a: {
     `Busy: ${running.length ? running.join(', ') : 'nothing'}`,
     `Suggestion shown: ${tip}${a.waiting ? ` · waiting to offer: ${a.waiting}` : ''}`,
     `Last handoff: ${handoff}`,
+    `Open tasks the next handoff carries: ${a.openTasks}`,
     `Settings: suggest at ${a.settings.suggestCompactAtTokens.toLocaleString('en-US')} tokens · long output ${a.settings.longOutputTokens.toLocaleString('en-US')} · long skill run ${a.settings.longSkillRunMinutes} min · offer handoffs for ${a.settings.offerHandoffHours} h`,
     `Handoffs go to: ${a.settings.handoffFolder} in the repository${a.settings.commitHandoffs ? ', committed' : ', not committed'}`,
   ].join('\n')
@@ -418,7 +421,7 @@ export const RESUME_TOAST = 'Press Enter to send. Claude reads the handoff and c
 
 /** "Continue": the handoff's own resume routine, then a short check-in before any new work. */
 export function resumePrompt(handoff: string): string {
-  return `Read ${handoff}, then follow its "How to resume": check the folder and branch, run "How to verify", and tell me in two lines where things stand and what you will do first.`
+  return `Read ${handoff}. If it has a "${TASK_LIST_TITLE}" section, first recreate those tasks exactly as it says. Then follow its "How to resume": check the folder and branch, run "How to verify", and tell me in two lines where things stand and what you will do first.`
 }
 
 // ---------------------------------------------------------------- the handoff Claude writes
@@ -464,15 +467,27 @@ export const HANDOFF_SECTIONS: readonly HandoffSection[] = [
 const REQUIRED_SECTIONS = HANDOFF_SECTIONS.filter(x => x.required).map(x => x.title)
 
 /** The one prompt "handoff & clear" / "handoff & compact" sends: Claude replies with the handoff; the bar saves it. */
-export function handoffRequest(a: { project: string; at: number; state: MachineState; draft: string }): string {
+export function handoffRequest(a: {
+  project: string
+  at: number
+  state: MachineState
+  draft: string
+  /** The open tasks in the task list: each gets its own entry, so the next session can recreate it. */
+  tasks?: readonly TrackedTask[]
+}): string {
   const when = new Date(a.at).toISOString().replace('T', ' ').slice(0, 16)
+  const tasks = a.tasks ?? []
+  const sections = HANDOFF_SECTIONS.flatMap(x => {
+    const line = `## ${x.title}${x.required ? ' (required)' : ''}: ${x.guide}`
+    return x.title === 'Next steps' && tasks.length ? [line, ...openTasksRequest(tasks)] : [line]
+  })
   return [
     'Write a handoff for the next Claude Code session. It starts with none of this conversation, so it must be self-contained: everything the next session needs is in the handoff.',
     `Write it with the Write tool to exactly this file: ${a.draft} (create it; touch no other file; run nothing else). Do NOT print the handoff in your reply: once the file is written, reply with one line, "Handoff written." The context bar then names it, saves it and commits it.`,
     '',
     `Start with "# Handoff — <name> — ${when} UTC". <name> names the file: the exact folder name of the plan being implemented when there is one (a folder in .claude/knowledge/, for example PROMPT_PIPELINE_LIVE_SUITE), otherwise a short kebab-case name for the work (2 to 5 words, for example context-bar-compact-suggestions). Use the same name as an earlier handoff for the same work.`,
     'Then these "##" sections in this order. Always include the ones marked (required), writing "none" when there is nothing; leave any other section out when it has nothing:',
-    ...HANDOFF_SECTIONS.map(x => `## ${x.title}${x.required ? ' (required)' : ''}: ${x.guide}`),
+    ...sections,
     '',
     'Be concrete: paths, IDs, numbers, commands. Every line must help the next session act; no padding. Never invent: write "unknown" when you do not know.',
     'Read from git just now (use these, do not guess):',
@@ -516,20 +531,31 @@ export function missingSections(body: string): string[] {
 
 
 /** The saved file: Claude's handoff (flagged when incomplete), then the state exactly as git reported it, then how to continue. */
-export function handoffFile(a: { body: string; at: number; state: MachineState; path: string; missing?: readonly string[] }): string {
+export function handoffFile(a: {
+  body: string
+  at: number
+  state: MachineState
+  path: string
+  missing?: readonly string[]
+  tasks?: readonly TrackedTask[]
+}): string {
   const when = new Date(a.at).toISOString().replace('T', ' ').slice(0, 16)
   const warning = a.missing?.length ? [`> **Incomplete handoff:** missing ${a.missing.join(', ')}. Check with the person before relying on it.`, ''] : []
+  const tasks = a.tasks ?? []
   return [
     ...warning,
     a.body,
     '',
     '---',
     '',
+    ...(tasks.length ? [...taskListBlock(tasks), ''] : []),
     `## Read from git when this handoff was written (${when} UTC)`,
     '',
     ...stateLines(a.state),
     '',
-    `To continue in a new session, say: **Read ${a.path} and follow its "How to resume".**`,
+    tasks.length
+      ? `To continue in a new session, say: **Read ${a.path}, recreate its open tasks, and follow its "How to resume".**`
+      : `To continue in a new session, say: **Read ${a.path} and follow its "How to resume".**`,
     '',
   ].join('\n')
 }
@@ -677,6 +703,7 @@ export function handoffMarkdown(a: {
   state: MachineState
   summary: string
   previous: string | null
+  tasks?: readonly TrackedTask[]
 }): string {
   const when = new Date(a.at).toISOString().replace('T', ' ').slice(0, 16)
   const why = 'Written when the context was compacted. The summary below is what the conversation was replaced with.'
@@ -692,6 +719,121 @@ export function handoffMarkdown(a: {
     ...stateLines(a.state),
   ]
   out.push('', '## Summary of the conversation', '', a.summary)
+  if (a.tasks?.length) out.push('', ...taskListBlock(a.tasks))
   if (a.previous) out.push('', '## Earlier handoff', '', `The handoff before this one: ${a.previous}`)
   return `${out.join('\n')}\n`
+}
+
+// ---------------------------------------------------------------- the task list, carried across a handoff
+
+/** The tools that make and change Claude Code's task list. */
+export const TASK_TOOLS: readonly string[] = ['TaskCreate', 'TaskUpdate', 'TodoWrite']
+
+const asText = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+const asIds = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+const asStatus = (v: unknown): TrackedTask['status'] | null => (v === 'pending' || v === 'in_progress' || v === 'completed' ? v : null)
+const unique = (ids: readonly string[]): string[] => [...new Set(ids)]
+
+/**
+ * The task list after one call of a task tool: TaskCreate adds the task under the id it got back, TaskUpdate changes
+ * it (a `deleted` status removes it, and it stops blocking others), TodoWrite replaces the whole list. Any other tool,
+ * a refused or failed call, or a task the bar never saw made leaves the list as it was.
+ */
+export function nextTasks(tasks: readonly TrackedTask[], tool: string, input: unknown, result: unknown): TrackedTask[] {
+  const i = (input ?? {}) as Record<string, unknown>
+  const r = (result ?? {}) as Record<string, unknown>
+  if (tool === 'TaskCreate') {
+    const id = asText((r.task as Record<string, unknown> | undefined)?.id)
+    const subject = asText(i.subject)
+    if (!id || !subject) return [...tasks]
+    const task: TrackedTask = { id, subject, description: asText(i.description) ?? '', activeForm: asText(i.activeForm), status: 'pending', blockedBy: [] }
+    return [...tasks.filter(t => t.id !== id), task]
+  }
+  if (tool === 'TaskUpdate') {
+    const id = asText(i.taskId)
+    if (!id || r.success === false || !tasks.some(t => t.id === id)) return [...tasks]
+    if (i.status === 'deleted') return tasks.filter(t => t.id !== id).map(t => ({ ...t, blockedBy: t.blockedBy.filter(b => b !== id) }))
+    const blocks = asIds(i.addBlocks)
+    return tasks.map(t => {
+      if (t.id === id) {
+        return {
+          ...t,
+          subject: asText(i.subject) ?? t.subject,
+          description: asText(i.description) ?? t.description,
+          activeForm: asText(i.activeForm) ?? t.activeForm,
+          status: asStatus(i.status) ?? t.status,
+          blockedBy: unique([...t.blockedBy, ...asIds(i.addBlockedBy)]),
+        }
+      }
+      return blocks.includes(t.id) ? { ...t, blockedBy: unique([...t.blockedBy, id]) } : t
+    })
+  }
+  if (tool === 'TodoWrite') {
+    if (!Array.isArray(i.todos)) return [...tasks]
+    return i.todos.flatMap((x, n): TrackedTask[] => {
+      const o = (x ?? {}) as Record<string, unknown>
+      const subject = asText(o.content)
+      return subject ? [{ id: `todo-${n + 1}`, subject, description: '', activeForm: asText(o.activeForm), status: asStatus(o.status) ?? 'pending', blockedBy: [] }] : []
+    })
+  }
+  return [...tasks]
+}
+
+/** The tasks not done yet, in the order they were made. */
+export function openTasks(tasks: readonly TrackedTask[]): TrackedTask[] {
+  return tasks.filter(t => t.status !== 'completed')
+}
+
+/** "blocked by 2, 3": the open tasks this one waits on, by their number in `open` (1-based); done ones are dropped. */
+function waitsOn(task: TrackedTask, open: readonly TrackedTask[]): number[] {
+  return task.blockedBy.map(id => open.findIndex(t => t.id === id) + 1).filter(n => n > 0)
+}
+
+/** The request's part for the open tasks: one entry each, the subject exactly as given, with what the next session needs. */
+function openTasksRequest(open: readonly TrackedTask[]): string[] {
+  return [
+    `## ${OPEN_TASKS_TITLE} (required): the task list holds ${open.length} open task${open.length === 1 ? '' : 's'}, listed below. Write one "### <n>. <subject>" for each, in this order, with the subject exactly as given. Under each: "Status:" as given, then "Context:" what the task is for, where it stopped, the files involved and the next command, so the next session can pick it up cold.`,
+    ...open.map((t, n) => {
+      const wait = waitsOn(t, open)
+      return `   ${n + 1}. [${t.status}] ${t.subject}${t.description ? ` — ${t.description}` : ''}${wait.length ? ` (blocked by ${wait.join(', ')})` : ''}`
+    }),
+  ]
+}
+
+export const OPEN_TASKS_TITLE = 'Open tasks'
+export const TASK_LIST_TITLE = 'Task list to recreate on resume'
+
+/** The subjects of the open tasks the handoff's "Open tasks" section does not name; empty when it names them all. */
+export function missingTasks(body: string, open: readonly TrackedTask[]): string[] {
+  if (!open.length) return []
+  const lines = body.split('\n')
+  const start = lines.findIndex(l => /^##\s+/.test(l) && norm(l.replace(/^##\s+/, '').split(':')[0] ?? '') === norm(OPEN_TASKS_TITLE))
+  if (start < 0) return open.map(t => t.subject)
+  const end = lines.findIndex((l, i) => i > start && /^#{1,2}\s/.test(l))
+  const section = lines.slice(start + 1, end < 0 ? undefined : end).join('\n')
+  return open.filter(t => !section.includes(t.subject)).map(t => t.subject)
+}
+
+/**
+ * The open tasks exactly as the task list held them, written by the bar (not by Claude), with how to recreate them:
+ * the next session reads this block and makes the same tasks again, in the same order, with the same dependencies.
+ */
+export function taskListBlock(open: readonly TrackedTask[]): string[] {
+  const list = open.map((t, n) => ({
+    n: n + 1,
+    subject: t.subject,
+    description: t.description,
+    activeForm: t.activeForm,
+    status: t.status,
+    blockedBy: waitsOn(t, open),
+  }))
+  return [
+    `## ${TASK_LIST_TITLE}`,
+    '',
+    `The open tasks in Claude Code's task list when this handoff was written, exactly as they were. On resume, check the task list (TaskList) and recreate every task here it does not hold, in this order: TaskCreate with its subject and activeForm, and as description its description here followed by its "Context" under "${OPEN_TASKS_TITLE}"; then TaskUpdate to set its status and what it is blocked by (by its number "n" here).`,
+    '',
+    '```json',
+    JSON.stringify(list, null, 2),
+    '```',
+  ]
 }

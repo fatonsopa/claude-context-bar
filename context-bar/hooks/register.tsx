@@ -68,6 +68,7 @@ const compactTip = atom({ plugin: 'context-bar', key: 'compactTip' } as const, n
 const compactRunning = atom({ plugin: 'context-bar', key: 'compactRunning' } as const, null)
 const compactResult = atom({ plugin: 'context-bar', key: 'compactResult' } as const, null)
 const compactLink = atom({ plugin: 'context-bar', key: 'compactLink' } as const, null)
+const compactTasks = atom({ plugin: 'context-bar', key: 'compactTasks' } as const, [])
 
 const PANE = 'context-bar'
 const TICK_MS = 1500
@@ -564,6 +565,8 @@ export const register: Register = (on, options) => {
       setRunning: v => update($, compactRunning, () => v),
       setResult: v => update($, compactResult, () => v),
       setLink: v => update($, compactLink, () => v),
+      getTasks: () => read($, compactTasks),
+      setTasks: v => update($, compactTasks, () => v),
       clear: () => $.command.run({ command: 'clear' }),
       remove: path => $.process.run(['rm', '-f', '--', path]),
       list: dir => $.fs.list(dir),
@@ -663,6 +666,8 @@ export const register: Register = (on, options) => {
   on('classic.SessionStart', async ($, e, next) => {
     const r = await next(e)
     if (e.source !== 'clear' && e.source !== 'startup') return r
+    // a new conversation starts with an empty task list (Claude Code keeps one per session); so does the bar's copy
+    await update($, compactTasks, () => [])
     const root = flow.repoMain() ?? (await $.session.cwd())
     const stored = asStoredHandoff(await $.store.get(handoffKey(root)))
     const now = await $.clock.now()
@@ -700,6 +705,7 @@ export const register: Register = (on, options) => {
           tip: await read($, compactTip),
           lastHandoff: asStoredHandoff(await $.store.get(handoffKey(root))),
           lastRun: asHandoffRun(await $.store.get(handoffRunKey(root))),
+          openTasks: await flow.openTaskCount(),
           now: await $.clock.now(),
           version: VERSION,
         }),

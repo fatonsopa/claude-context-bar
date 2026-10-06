@@ -163,6 +163,19 @@ export type CompactTip = {
   to?: string | null
 }
 
+/** A task in Claude Code's task list (TaskCreate / TaskUpdate, or a TodoWrite item), as the bar saw it made and changed. */
+export type TrackedTask = {
+  /** Claude Code's id for it (`3`), or `todo-<n>` for a TodoWrite item. */
+  id: string
+  subject: string
+  description: string
+  /** What the spinner says while it runs ("Running tests"); null when it was not given. */
+  activeForm: string | null
+  status: 'pending' | 'in_progress' | 'completed'
+  /** The ids of the tasks it waits on. */
+  blockedBy: string[]
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'context-bar': {
@@ -174,6 +187,8 @@ declare module 'claude-code' {
       compactResult: string | null
       /** The handoff file the line names, drawn there as a link to it; null before the first. */
       compactLink: string | null
+      /** This session's task list, as the bar saw it made and changed; carried into every handoff. */
+      compactTasks: TrackedTask[]
       snapshot: Snapshot | null
       selected: string | null
       isCounting: boolean

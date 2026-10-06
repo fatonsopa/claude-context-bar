@@ -48,6 +48,14 @@ running, what suggestion waits, the last handoff, the settings).
   `/context-bar status` shows how the last run ended. A compaction you type, or an automatic one, ends with
   "Handoff: <path>" naming the summary file it saved.
 
+- **Open tasks** carry across a handoff. The bar keeps an exact copy of the session's task list (every `TaskCreate`,
+  `TaskUpdate` and `TodoWrite`; a subagent's own tasks are left out). A handoff then needs an "Open tasks" section
+  naming each open task by its exact subject, with its status and the context to pick it up cold; one left out stops
+  the handoff ("is missing open task …"). The bar appends "Task list to recreate on resume": the open tasks exactly as
+  the list held them (subject, description, activeForm, status, blocked by), and "Continue" asks the next session to
+  recreate them first. `/context-bar status` shows how many open tasks the next handoff carries. The copy starts empty
+  after `/clear` or a fresh start, like Claude Code's own list; tasks made before the bar loaded are not in it.
+
 `recalculate` sits at the right end of the limits line.
 
 ## Settings (`/config`)
