@@ -75,8 +75,6 @@ To run it from a local checkout instead, add the folder to `CLAUDE_CODE_PLUGIN_D
 Both always sit in the header. At a good moment, the right button's `■` becomes `▣` and a line under the strip says
 what just finished:
 
-![The bar after a git push: the line under the colour strip says "✓ Pushed to GitHub"](docs/images/suggestion.png)
-
 | When | The line says | Suggested |
 |---|---|---|
 | A `git commit` succeeded | `✓ Changes committed` | handoff & compact |
