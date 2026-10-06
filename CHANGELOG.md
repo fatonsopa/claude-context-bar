@@ -5,6 +5,14 @@ All notable changes to the mods in this repository. The format follows
 
 ## context-bar
 
+### [0.17.5] — 2026-10-07
+
+#### Changed
+- README documents every button and every feature: the bar's header, badge colours, limits line, clickable strip,
+  categories and their three levels, the doctor's line in the bar and its panel, when suggestions appear (the
+  80,000-token minimum, the 10-minute pause after a compaction), every message the bar shows, everything the context
+  doctor checks with its thresholds, every doctor button, and a table of every button.
+
 ### [0.17.4] — 2026-10-06
 
 #### Added
