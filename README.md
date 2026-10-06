@@ -78,21 +78,6 @@ Auto-update is off for this marketplace by default. Turn it on in `/plugin` → 
 
 It updates within 1.5 s of every prompt and tool call.
 
-### Buttons
-
-| Button | Does |
-|---|---|
-| `▸`, or a click on the strip | Show or hide the categories |
-| A category · `✕ close` | Open it · close it |
-| An item marked `▸` | Open its sections or tools |
-| **recalculate** | Count the context exactly (free) |
-| **handoff & compact** | Write a handoff, then compact |
-| **handoff & clear** | Write a handoff, then `/clear` |
-| The handoff path | Open the handoff file |
-| **Continue** | Put "resume from this handoff" in the prompt box |
-| The doctor line | Show the AI's summary, top 5 actions and the audit file |
-| **draft** · **[copy path]** · **[open doctor]** · `✕` | In that panel: draft an action · copy the audit path · open the doctor · remove the line |
-
 ### Handoff
 
 1. Claude writes the handoff to a hidden draft file. It is not printed in the chat.
@@ -116,35 +101,9 @@ Pressed while Claude is mid-step, a button does nothing. If git refuses the comm
 Every compaction, yours or automatic, keeps approvals, the plan, modes and open errors. Its summary is saved to
 `~/.claude/handoffs/<project>/<time>-compact.md`.
 
-### Suggestions
-
-| After | Line under the strip | Marked button |
-|---|---|---|
-| `git commit` | `✓ Changes committed` | handoff & compact |
-| `git push` | `✓ Pushed to GitHub` | both |
-| A skill run over 5 min | `✓ /<skill> finished` | both |
-| `/clear` or a new session | `↺ A handoff … — continue from it?` | **Continue** |
-
-Only when the conversation holds 80k+ tokens. Never within 10 min of a compaction. Never while subagents, background
-commands, a git merge or rebase, or failing tests are running; it waits until they end. A suggestion stays until you
-press a button or the context shrinks.
-
 ### Context doctor
 
 `/context-doctor [--model=opus|sonnet|haiku|fable|<id>] [--effort=low|medium|high|xhigh|max] [ask]`
-
-<img src="context-bar/docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
-
-**Checks** (free, run locally):
-
-| Category | Flags | Severity |
-|---|---|---|
-| memory files | A file of 3k+ tokens | med, high from 10k |
-| mcp tools | A server of 2k+ tokens never called this session | med, high from 10k |
-| skills | Skills that don't fit the listing · a listing of 3k+ tokens | med · low |
-| agents | Agent descriptions of 2k+ tokens | low |
-| tools · system prompt | 25k+ · 10k+ tokens | info |
-| messages | Context 40% / 60% of the way to auto-compact | med / high |
 
 **Features:**
 
@@ -160,6 +119,19 @@ press a button or the context shrinks.
   `/clear`, a file's path.
 - **Progress in the bar** while the AI works, so the pane can be closed.
 
+<img src="context-bar/docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
+
+**Checks** (free, run locally):
+
+| Category | Flags | Severity |
+|---|---|---|
+| memory files | A file of 3k+ tokens | med, high from 10k |
+| mcp tools | A server of 2k+ tokens never called this session | med, high from 10k |
+| skills | Skills that don't fit the listing · a listing of 3k+ tokens | med · low |
+| agents | Agent descriptions of 2k+ tokens | low |
+| tools · system prompt | 25k+ · 10k+ tokens | info |
+| messages | Context 40% / 60% of the way to auto-compact | med / high |
+
 ### Commands
 
 | Command | Does |
@@ -169,6 +141,21 @@ press a button or the context shrinks.
 | `/context-bar handoff` | Same as **handoff & clear** |
 | `/context-bar status` | Version, running work, suggestion, last handoff, open tasks, settings |
 | `/context-doctor help` | Usage |
+
+### Buttons
+
+| Button | Does |
+|---|---|
+| `▸`, or a click on the strip | Show or hide the categories |
+| A category · `✕ close` | Open it · close it |
+| An item marked `▸` | Open its sections or tools |
+| **recalculate** | Count the context exactly (free) |
+| **handoff & compact** | Write a handoff, then compact |
+| **handoff & clear** | Write a handoff, then `/clear` |
+| The handoff path | Open the handoff file |
+| **Continue** | Put "resume from this handoff" in the prompt box |
+| The doctor line | Show the AI's summary, top 5 actions and the audit file |
+| **draft** · **[copy path]** · **[open doctor]** · `✕` | In that panel: draft an action · copy the audit path · open the doctor · remove the line |
 
 ## Settings
 
