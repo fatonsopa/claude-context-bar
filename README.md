@@ -68,17 +68,27 @@ Auto-update is off for this marketplace by default. Turn it on in `/plugin` → 
 
 ![The bar with its categories open](context-bar/docs/images/bar-categories.png)
 
-| Part | Shows |
-|---|---|
-| Header | Tokens used, where auto-compact starts, a % badge (yellow from 60% of the way to auto-compact, red from 85%). `est.` = local estimate, `exact` = counted by the API. |
-| Limits line | Each rate-limit window (session, week, a model's week): meter, %, time to reset. Then this session's cost at API prices. |
-| Colour strip | The window by category, with a mark where auto-compact starts. |
-| Categories | Tokens and share of each category. Inside: items, largest first; inside an item: a file's sections or a server's tools. |
-| Doctor line | The context doctor's progress, then its result. |
+**Features:**
+
+- **How full the context is**: tokens used, where auto-compact starts, and a % badge that turns yellow at 60% of the
+  way to auto-compact and red at 85%. `est.` means a local estimate; press **recalculate** for an exact count (free).
+- **What fills it**: the colour strip shows the window by category. Press `▸` (or click the strip) to list the
+  categories with their tokens. Press a category to see its items, largest first, and an item marked `▸` to see its
+  sections or tools. `✕ close` closes it.
+- **Rate limits and cost**: each rate-limit window (session, week, a model's week) with a meter, % and time to reset,
+  and this session's cost at API prices.
+- **Handoff buttons**: **handoff & compact** and **handoff & clear** ([Handoff](#handoff)). After a commit, a push or
+  a long skill run, the bar marks the one to press.
+- **Context doctor progress**: while the doctor's AI works, a line shows its progress. Press it for the summary, the
+  top 5 actions (**draft** puts one in your prompt box) and the audit file (**[copy path]**, **[open doctor]**). `✕`
+  removes the line.
 
 It updates within 1.5 s of every prompt and tool call.
 
 ### Handoff
+
+**handoff & compact** saves a handoff and keeps the session, with a lighter context: use it to carry on with the same
+work. **handoff & clear** saves a handoff and starts a clean conversation: use it before unrelated work. Both:
 
 1. Claude writes the handoff to a hidden draft file. It is not printed in the chat.
 2. The bar checks it. Required: Goal, Where things stand, Decisions and approvals, Next steps, How to verify, How to
@@ -92,8 +102,9 @@ It updates within 1.5 s of every prompt and tool call.
 
 ![After handoff & clear: the handoff path and the Continue offer](context-bar/docs/images/handoff-clear-done.png)
 
-**Continue** appears after `/clear`, or in a new session within 6 hours of the handoff. It recreates the open tasks,
-then follows the handoff's "How to resume". It goes away when you send anything else.
+Click the handoff path under the result to open the file. After `/clear`, or in a new session within 6 hours, press
+**Continue**: it puts a request in your prompt box to recreate the open tasks and follow the handoff's "How to
+resume". It goes away when you send anything else.
 
 Pressed while Claude is mid-step, a button does nothing. If git refuses the commit, the line says
 `(not committed: <reason>)` and the compact or clear still runs.
@@ -118,11 +129,13 @@ agents or memory files; or when auto-compact keeps arriving sooner than you expe
 
 **Features:**
 
-- **Findings by category**, the same categories as the bar. Filter by category; open a finding to see what was
-  measured and why it matters.
+- **Findings by category**, the same categories as the bar. Press a category to show only its findings; press a
+  finding to see what was measured and why it matters. **⟳ rescan** measures again; **✕ close** (or Escape) closes
+  the pane.
 - **AI audit** (paid, optional): a summary and a step-by-step plan per finding, with the tokens each step frees. The
-  cost is shown before you run it. Saved as Markdown with `CD-` references in `.claude/knowledge/context-audits/`,
-  and readable in the pane.
+  cost is shown on the **✦ ask AI** button. Saved as Markdown with `CD-` references in
+  `.claude/knowledge/context-audits/`: **[open]** opens the file, **[copy path]** copies its path, and `▸ full audit`
+  shows it in the pane.
 - **Deep-dive** (paid, optional): a finer plan from one memory file's full text.
 - **Draft**: puts any step's instruction in the prompt box. Nothing runs until you press Enter, and it asks before
   editing.
@@ -152,21 +165,6 @@ agents or memory files; or when auto-compact keeps arriving sooner than you expe
 | `/context-bar handoff` | Same as **handoff & clear** |
 | `/context-bar status` | Version, running work, suggestion, last handoff, open tasks, settings |
 | `/context-doctor help` | Usage |
-
-### Buttons
-
-| Button | Does |
-|---|---|
-| `▸`, or a click on the strip | Show or hide the categories |
-| A category · `✕ close` | Open it · close it |
-| An item marked `▸` | Open its sections or tools |
-| **recalculate** | Count the context exactly (free) |
-| **handoff & compact** | Write a handoff, then compact |
-| **handoff & clear** | Write a handoff, then `/clear` |
-| The handoff path | Open the handoff file |
-| **Continue** | Put "resume from this handoff" in the prompt box |
-| The doctor line | Show the AI's summary, top 5 actions and the audit file |
-| **draft** · **[copy path]** · **[open doctor]** · `✕` | In that panel: draft an action · copy the audit path · open the doctor · remove the line |
 
 ## Settings
 
