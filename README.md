@@ -1,17 +1,31 @@
 # claude-context-bar
 
-Keep long Claude Code sessions on track: see what fills the context, and hand work over without losing it.
+A Claude Code plugin for long sessions: it shows what fills the context window, and hands your work over to the next
+session without losing it.
 
 ![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](docs/images/bar.png)
 
-Long sessions fail in three quiet ways. This repository's **context-bar** plugin fixes each:
+Two hours into a task, Claude has read a dozen files, you have agreed on an approach, approved a migration and ruled
+out another idea. Then auto-compact starts in the middle of a step. The summary keeps the outline and loses the
+details: the idea you ruled out and why, the command that reproduced the bug, the test that was still failing. Claude
+reads the same files again, suggests the idea you rejected, or asks for an approval you already gave.
 
-- **The context fills up unseen**, and auto-compact drops details you still needed. The bar shows what fills the
-  window and how close auto-compact is, and suggests compacting at a natural stopping point.
-- **A new session starts from zero.** One button writes a checked handoff (goal, decisions, approvals, open tasks,
-  next commands), then compacts or clears. The next session continues from it.
-- **You can't see what costs tokens on every turn.** The context doctor finds big memory files, unused MCP servers
-  and skills Claude can't see, and plans the fix.
+Starting fresh is no better. After `/clear`, or the next morning, you spend the first minutes explaining again what
+you are building, what is done and what comes next.
+
+And the context fills faster than it should. A large `CLAUDE.md`, MCP servers whose tools you never call, a long list
+of skills: all of it is sent with every request, costs tokens on every turn and brings auto-compact closer. You notice
+only when auto-compact comes early.
+
+context-bar keeps this in view and gives you a clean place to stop:
+
+- **The bar above the prompt** shows how full the context is, what fills it and how far away auto-compact is. Once
+  the conversation is large, it suggests compacting after a commit, a push or a long skill run: you pick the moment,
+  not auto-compact.
+- **handoff & compact** and **handoff & clear** have Claude write a handoff (goal, where things stand, decisions and
+  approvals, next steps, how to verify, open tasks). The bar checks that nothing is missing, saves it in your project,
+  then compacts or clears. In the next session, **Continue** picks up from it.
+- **`/context-doctor`** finds what costs tokens on every request and plans the fix, with the tokens each step frees.
 
 Version 0.17.8 · [changelog](CHANGELOG.md)
 
