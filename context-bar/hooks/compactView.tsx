@@ -2,16 +2,15 @@
 // which of the top line's buttons (now lit) fits. The actions live only in the top line, never repeated here. The one
 // button here is Continue after /clear, which exists nowhere else. A suggestion stays until it is acted on, a
 // compaction shrinks the context, or a newer moment replaces it; it shows its age once a minute has passed.
-import type { BoxProps, ButtonProps, ElementConstructor, LinkProps, RenderElement, TextProps } from 'claude-code'
+import type { BoxProps, ButtonProps, ElementConstructor, RenderElement, TextProps } from 'claude-code'
 
 import type { CompactTip } from '../types'
-import { fileUrl, tipText } from './compact'
+import { tipText } from './compact'
 
 type Els = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
   Button: ElementConstructor<ButtonProps>
-  Link: ElementConstructor<LinkProps>
 }
 
 export type CompactArgs = {
@@ -21,32 +20,47 @@ export type CompactArgs = {
   running: string | null
   /** The last result (a handoff, a compaction, a clear), until the person's next message. */
   result: string | null
-  /** The handoff file the message names: wherever its path appears, it is a link that opens the file. */
+  /** The handoff file the message names: wherever its path appears, pressing it opens the file. */
   link: string | null
   /** A turn is running: buttons that act on the conversation wait until it ends. */
   isWorking: boolean
   now: number
   on: {
     resume: () => void
+    /** Opens a file in the computer's default app for it. */
+    open: (path: string) => void
   }
 }
 
 /** Everything on this line (a suggestion, what the bar is doing, what it did): yellow text, no background. */
 export const MESSAGE_FG = '#F2C76E'
 
-/** One line of a message, its handoff path (if it names it) a link to the file. */
-function messageLine(els: Els, line: string, link: string | null): RenderElement {
-  const { Text, Link } = els
+/**
+ * One line of a message, its handoff path (if it names it) drawn once and pressable: a press opens the file. A
+ * Button, not a Link: a terminal without hyperlinks (macOS Terminal) draws a Link's text and then its URL again, and
+ * neither can be clicked; a Button is pressed by a click on every terminal.
+ */
+function messageLine(a: CompactArgs, line: string, i: number): RenderElement {
+  const { Box, Text, Button } = a.els
+  const link = a.link
   const at = link ? line.indexOf(link) : -1
-  if (!link || at < 0) return <Text color={MESSAGE_FG} wrap="wrap">{line}</Text>
+  if (!link || at < 0) {
+    return (
+      <Box key={`compact-line-${i}`}>
+        <Text color={MESSAGE_FG} wrap="wrap">
+          {line}
+        </Text>
+      </Box>
+    )
+  }
   const before = line.slice(0, at)
   const after = line.slice(at + link.length)
   return (
-    <Text color={MESSAGE_FG} wrap="wrap">
-      {before || null}
-      <Link href={fileUrl(link)}>{link}</Link>
-      {after || null}
-    </Text>
+    <Box key={`compact-line-${i}`} flexDirection="row">
+      {before ? <Text color={MESSAGE_FG}>{before}</Text> : null}
+      <Button key={`compact-open-${i}`} plain label={link} hover={{ color: MESSAGE_FG, underline: true }} onPress={() => a.on.open(link)} />
+      {after ? <Text color={MESSAGE_FG}>{after}</Text> : null}
+    </Box>
   )
 }
 
@@ -60,9 +74,7 @@ export function compactLine(a: CompactArgs): RenderElement | null {
   if (!message && !tip) return null
   return (
     <Box key="compact" marginTop={1} flexDirection="column">
-      {message?.split('\n').map((line, i) => (
-        <Box key={`compact-line-${i}`}>{messageLine(a.els, line, a.link)}</Box>
-      ))}
+      {message?.split('\n').map((line, i) => messageLine(a, line, i))}
       {tip && (
         <Box key="compact-tip" flexDirection="row" columnGap={2}>
           <Box key="compact-text">

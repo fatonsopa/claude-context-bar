@@ -130,7 +130,7 @@ case you need more detail later.
    Handoff: /…/.claude/knowledge/handoffs/<name>-handoff.md
    ```
 
-**After it.** The handoff path is a link that opens the file. Your task list stays as it was, since the session goes
+**After it.** Click the handoff path to open the file. Your task list stays as it was, since the session goes
 on. A copy of the summary is saved to `~/.claude/handoffs/<project>/<time>-compact.md`. The bar makes no new
 suggestion for the next 10 minutes.
 
@@ -315,7 +315,7 @@ The latest handoff per project and the last handoff run's outcome are kept in Cl
 - The task-list copy starts when the bar loads. Tasks made before that in the same session are not carried.
 - Colours are tuned for dark terminals: every button and the yellow line keep a 4.5 : 1 contrast on a dark background.
   Light themes are not tuned yet.
-- In a terminal without hyperlink support, a handoff path is printed followed by its `file://` address.
+- Clicking a handoff path opens it with `open` (macOS) or `xdg-open` (Linux), in your default app for Markdown.
 
 ## Troubleshooting
 

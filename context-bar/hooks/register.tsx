@@ -130,6 +130,24 @@ function failure(r: Extract<ModelCompleteResult, { isAnswered: false }>): string
   return r.reason === 'api-error' ? `API error${r.status ? ` ${r.status}` : ''}` : r.reason
 }
 
+/** What opening a file needs from the engine. */
+type Opener = {
+  process: { run: (argv: readonly string[]) => Promise<{ exitCode: number; stderr: string }> }
+  ui: { toast: (text: string) => unknown }
+}
+
+/** Opens a file in the Mac's (or Linux desktop's) default app for it: an audit, a handoff. */
+const openFile =
+  ($: Opener) =>
+  (path: string): void =>
+    void $.process
+      .run(['open', path])
+      .catch(() => $.process.run(['xdg-open', path]))
+      .then(r => {
+        if (r.exitCode !== 0) $.ui.toast(`Could not open ${path}: ${r.stderr.trim() || `exit ${r.exitCode}`}`)
+      })
+      .catch(err => $.ui.toast(`Could not open ${path}: ${err instanceof Error ? err.message : String(err)}`))
+
 export const register: Register = (on, options) => {
   let ops: Ops | null = null
   let dirty = true
@@ -797,7 +815,7 @@ export const register: Register = (on, options) => {
         link: await read($, compactLink),
         isWorking: flow.isTurnRunning() || ('isWorking' in e.props && e.props.isWorking === true),
         now: await $.clock.now(),
-        on: flow.buttons,
+        on: { ...flow.buttons, open: openFile($) },
       }),
     })
   })
@@ -851,7 +869,7 @@ export const register: Register = (on, options) => {
         link: await read($, compactLink),
         isWorking: flow.isTurnRunning() || ('isWorking' in e.props && e.props.isWorking === true),
         now: await $.clock.now(),
-        on: flow.buttons,
+        on: { ...flow.buttons, open: openFile($) },
       }),
     })
   })
@@ -875,15 +893,7 @@ export const register: Register = (on, options) => {
       auditText: await read($, auditText),
       on: {
         filter: name => void update($, doctorFilter, cur => (cur === name || name === '' ? null : name)),
-        // opens the audit in the Mac's (or Linux desktop's) default app for Markdown
-        open: path =>
-          void $.process
-            .run(['open', path])
-            .catch(() => $.process.run(['xdg-open', path]))
-            .then(r => {
-              if (r.exitCode !== 0) $.ui.toast(`Could not open ${path}: ${r.stderr.trim() || `exit ${r.exitCode}`}`)
-            })
-            .catch(err => $.ui.toast(`Could not open ${path}: ${err instanceof Error ? err.message : String(err)}`)),
+        open: openFile($),
         toggleAudit: () =>
           void update($, auditOpen, v => !v).then(open => {
             if (open) void loadAuditText()

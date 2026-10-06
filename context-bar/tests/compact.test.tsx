@@ -16,7 +16,6 @@ import {
   endedTask,
   clearDoneText,
   compactingText,
-  fileUrl,
   handoffDoneText,
   handoffLine,
   handoffFailedText,
@@ -375,8 +374,6 @@ test('everything the person reads uses Claude Code\'s own words: compact, contex
   )
   expect(compactingText()).toBe('Compacting… this can take a minute.')
   expect(clearDoneText(at, '/p/x-handoff.md')).toBe('Clear completed on September 7, 5:39:45pm.\nHandoff: /p/x-handoff.md')
-  // a link to the file: each part encoded, so a space, # or ? in a folder name stays part of the path
-  expect(fileUrl('/Users/me/My Projects/#1?/x-handoff.md')).toBe('file:///Users/me/My%20Projects/%231%3F/x-handoff.md')
   expect(handoffFailedText({ at, reason: 'no handoff was written', then: 'compact' })).toBe(
     'Handoff failed on September 7, 5:39:45pm: no handoff was written. Nothing was compacted.',
   )
@@ -449,7 +446,7 @@ test('"handoff & compact": the handoff goes to a draft (never printed), is saved
   expect(during).toHaveLength(2)
   expect(during[0]).toMatch(completedOn(SAVED))
   expect(during[1]).toBe('Compacting… this can take a minute.')
-  expect(await bandLinks(ui)).toEqual([{ href: fileUrl(SAVED), text: SAVED }])
+  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0 })
   release()
   await w.clock.settle()
   const sent = w.compacts[0]?.instructions ?? ''
@@ -461,7 +458,11 @@ test('"handoff & compact": the handoff goes to a draft (never printed), is saved
   expect(lines[0]).toMatch(/^Compact completed on [A-Z][a-z]+ \d+, \d+:\d{2}:\d{2}[ap]m: context went from 40% to 9%\.$/)
   expect(lines[1]).toBe(`Handoff: ${SAVED}`)
   expect(lines).toHaveLength(2)
-  expect(await bandLinks(ui)).toEqual([{ href: fileUrl(SAVED), text: SAVED }])
+  // the path is drawn once, and pressing it opens the handoff file
+  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0 })
+  await ui.press({ key: 'compact-open-1' })
+  await w.clock.settle()
+  expect(w.runs).toContainEqual(['open', SAVED])
   // yellow text on the terminal's own background: no band behind the result
   const texts = (await ui.findAll({ type: 'Text' })) as Node[]
   const result = texts.filter(t => visible(t).includes('Compact completed') || visible(t).includes('Handoff:'))
@@ -494,7 +495,7 @@ test('a /compact the person types gets the keep list and ends with a note of whe
   const lines = await bandLines(ui)
   expect(lines[0]).toMatch(/^Compact completed on .*: context went from 40% to 9%\.$/)
   expect(lines[1]).toMatch(/^Handoff: \/home\/me\/\.claude\/handoffs\/proj\/\d{8}-\d{6}-compact\.md$/)
-  expect((await bandLinks(ui))[0]?.href).toBe(fileUrl(lines[1]?.slice('Handoff: '.length) ?? ''))
+  expect(await bandPaths(ui)).toEqual({ paths: [lines[1]?.slice('Handoff: '.length)], links: 0 })
   await ui.unmount()
 })
 
@@ -529,9 +530,15 @@ const esc = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 /** "Handoff completed on September 7, 5:39:45pm: <path>" for any time. */
 const completedOn = (path: string) => new RegExp(`Handoff completed on [A-Z][a-z]+ \\d+, \\d+:\\d{2}:\\d{2}[ap]m: ${esc(path)}`)
 type Node = { type?: string; props?: Record<string, unknown>; children?: (Node | string)[] }
-/** What a person reads in a node: its strings, each Box on a line of its own. The kit's `.text` also spells a Link's href. */
+/** What a person reads in a node: its strings and Button labels; a column Box puts each child on a line of its own. */
 const visible = (n: Node | string | undefined): string =>
-  typeof n === 'string' ? n : !n ? '' : (n.children ?? []).map(visible).join(n.type === 'Box' ? '\n' : '')
+  typeof n === 'string'
+    ? n
+    : !n
+      ? ''
+      : n.type === 'Button'
+        ? String(n.props?.label ?? '')
+        : (n.children ?? []).map(visible).join(n.type === 'Box' && n.props?.flexDirection === 'column' ? '\n' : n.props?.columnGap ? ' ' : '')
 /** The bar's own line (what it is doing, or its last result), as one string. */
 const bandText = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
   visible((await ui.find({ key: 'compact' })) as Node | undefined).replace(/\s+/g, ' ').trim()
@@ -544,9 +551,14 @@ const bandLines = async (ui: { find: (q: { key: string }) => Promise<unknown> })
   }
   return lines
 }
-/** Every Link in the bar's line: where it points and the text it shows. */
-const bandLinks = async (ui: { findAll: (q: { type: string }) => Promise<unknown[]> }) =>
-  ((await ui.findAll({ type: 'Link' })) as Node[]).map(l => ({ href: l.props?.href, text: visible(l) }))
+/** The pressable paths in the bar's line (a press opens the file), and how many Links it draws (none: a terminal
+ * without hyperlinks would print a Link's URL a second time). */
+const bandPaths = async (ui: { findAll: (q: { type: string }) => Promise<unknown[]> }) => ({
+  paths: ((await ui.findAll({ type: 'Button' })) as Node[])
+    .filter(b => String(b.props?.key ?? '').startsWith('compact-open-'))
+    .map(b => String(b.props?.label)),
+  links: ((await ui.findAll({ type: 'Link' })) as Node[]).length,
+})
 
 /**
  * Claude's handoff turn as it now runs: the request goes out on a 0 ms timer; Claude writes the draft with the Write
@@ -652,7 +664,7 @@ test('"handoff & clear": the handoff is saved, then /clear is run, as the button
   expect(w.commands).toEqual(['clear'])
   expect(w.filled).toEqual([])
   expect(await bandLines(ui)).toEqual([expect.stringMatching(/^Clear completed on [A-Z][a-z]+ \d+, .*\.$/), `Handoff: ${SAVED}`])
-  expect(await bandLinks(ui)).toEqual([{ href: fileUrl(SAVED), text: SAVED }])
+  expect(await bandPaths(ui)).toEqual({ paths: [SAVED], links: 0 })
   await ui.unmount()
 })
 

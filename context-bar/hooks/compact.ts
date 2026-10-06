@@ -299,11 +299,6 @@ export function compactingText(handoffLine?: string): string {
   return handoffLine ? `${handoffLine}\n${RUNNING_TEXT.compact}` : RUNNING_TEXT.compact
 }
 
-/** A file path as a `file://` URL, each part percent-encoded (a space, `#` or `?` in a folder name stays part of the path). */
-export function fileUrl(path: string): string {
-  return `file://${path.split('/').map(encodeURIComponent).join('/')}`
-}
-
 /** A handoff that did not complete, and that nothing was compacted or cleared because of it. */
 export function handoffFailedText(a: { at: number; reason: string; then: 'clear' | 'compact' }): string {
   return `Handoff failed on ${when(a.at)}: ${a.reason}. Nothing was ${a.then === 'compact' ? 'compacted' : 'cleared'}.`

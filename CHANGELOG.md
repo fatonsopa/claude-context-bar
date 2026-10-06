@@ -5,6 +5,12 @@ All notable changes to the mods in this repository. The format follows
 
 ## context-bar
 
+### [0.17.2] — 2026-10-06
+
+#### Fixed
+- The handoff path showed twice in terminals without clickable links (macOS Terminal): once, then again as a dimmed
+  `file://` address, and neither could be clicked. The bar now shows the path once, and clicking it opens the file.
+
 ### [0.17.1] — 2026-10-06
 
 #### Fixed
