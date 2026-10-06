@@ -75,6 +75,8 @@ To run it from a local checkout instead, add the folder to `CLAUDE_CODE_PLUGIN_D
 Both always sit in the header. At a good moment, the right button's `■` becomes `▣` and a line under the strip says
 what just finished:
 
+![The bar after a git push: the line under the colour strip says "✓ Pushed to GitHub"](docs/images/suggestion.png)
+
 | When | The line says | Suggested |
 |---|---|---|
 | A `git commit` succeeded | `✓ Changes committed` | handoff & compact |
@@ -154,6 +156,8 @@ belong in the project's `CLAUDE.md` ("Compact Instructions"), which Claude Code 
 ## The context doctor
 
 `/context-doctor` opens a pane that audits the context window by the same categories as the bar.
+
+<img src="docs/images/context-doctor.png" alt="The context doctor: 406k of 1M, 4 findings; each category with its tokens, share and findings; the memory files category open with a high and a medium finding; and the ask AI button with its estimated cost" width="497">
 
 1. **Findings, without AI.** It measures what each category holds and flags what is worth a look: a memory file that
    loads many tokens on every request, MCP servers whose tools load but were never called, skills that don't fit the
