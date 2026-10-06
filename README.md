@@ -1,41 +1,16 @@
 # claude-context-bar
 
-A Claude Code plugin for long sessions: it shows what fills the context window and how close auto-compact is, and it
-saves a handoff so that the next session can continue the work.
+Claude Code plugin for context window transparency and management. `context-bar` displays what occupies the context
+window, prompts compaction at task boundaries, saves verified handoffs before `/compact` or `/clear`, and audits the
+tokens loaded on every request.
 
 ![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](docs/images/bar.png)
 
-When the context window fills up, Claude Code compacts the conversation automatically, and this can happen in the
-middle of a step. The summary it writes keeps the general state of the work but can lose details you still need, such
-as the approaches you ruled out, the changes you approved, the command that reproduced a bug or the tests that were
-still failing. After the compaction, Claude may read the same files again, propose an approach you already rejected
-or ask again for an approval you already gave.
-
-Running `/clear` or starting a new session avoids that summary, but the new conversation knows nothing about the
-previous one, so you have to explain the goal, what is done and what comes next before the work can continue.
-
-Part of the context is taken before the conversation even starts: memory files such as `CLAUDE.md`, the tool
-definitions of every connected MCP server and the list of available skills are sent with every request, so a large
-memory file or an MCP server whose tools you never use costs tokens on every turn and brings auto-compact closer.
-
-context-bar deals with each of these problems:
-
-- The bar above the prompt shows how many tokens the context holds, how they split across memory files, MCP tools,
-  skills, messages and the other categories, and how close auto-compact is. Once the conversation itself passes
-  80,000 tokens (you can change this), the bar suggests compacting after a commit, a push or a long skill run, so
-  that the compaction happens between steps.
-- **handoff & compact** and **handoff & clear** have Claude write a handoff with the goal, where things stand, the
-  decisions and approvals, the next steps, how to verify the work and the open tasks. The bar checks that every
-  required section is there, saves the file in your project and then compacts or clears the conversation. In the next
-  session, **Continue** puts a request in your prompt box to recreate the open tasks and resume from the handoff.
-- `/context-doctor` measures what is sent with every request, flags large memory files, MCP servers you never call
-  and skills that don't fit the listing, and on request writes a step-by-step plan for each finding, with the tokens
-  each step frees.
-
-Version 0.17.8 · [changelog](CHANGELOG.md)
+Version `0.17.8` · [changelog](CHANGELOG.md)
 
 ## Contents
 
+- [Context window constraints](#context-window-constraints)
 - [Requirements](#requirements)
 - [Install](#install)
 - [Update and uninstall](#update-and-uninstall)
@@ -45,30 +20,49 @@ Version 0.17.8 · [changelog](CHANGELOG.md)
 - [Contributing](#contributing)
 - [License](#license)
 
+## Context window constraints
+
+| Constraint | Effect | `context-bar` response |
+|---|---|---|
+| Context composition is visible only on demand, through `/context`. | Large tool results, file reads and memory files go unnoticed until auto-compaction triggers. | The bar shows usage and composition by category and refreshes within 1.5 s of every prompt and tool call. |
+| Auto-compaction triggers when the context window reaches its limit, including mid-task. | The compaction summary can omit approvals, plan progress, open errors and running subagents. | Prompts compaction at task boundaries. Adds a keep list to every compaction. `handoff & compact` saves a verified handoff first. |
+| `/clear` flushes the active context window. | New sessions require explicit context re-initialization: goals, status, next steps. | `handoff & clear` saves a verified handoff. `Continue` restores it in the next session. |
+| `CLAUDE.md`, active MCP server tool definitions and the skills listing load on every request. | Static token overhead on every request cycle accelerates auto-compaction. | `/context-doctor` flags oversized items and plans each fix with the tokens it frees. |
+
 ## Requirements
 
-- Claude Code 2.1.275 or later (built and tested on 2.1.292).
-- A dark terminal theme. Light themes are not tuned yet.
+- Claude Code `2.1.275` or later. Built and tested on `2.1.292`.
+- A dark terminal theme. Light themes are not tuned.
 
 ## Install
 
-In a Claude Code session:
+Run in a Claude Code session:
 
 ```
 /plugin install context-bar --marketplace fatonsopa/claude-context-bar
 ```
 
-Confirm the marketplace, then pick a scope. The bar appears above the prompt. The same in two steps:
+Confirm the marketplace and select a scope. The bar renders above the prompt.
+
+Two-step alternative:
 
 ```
 /plugin marketplace add fatonsopa/claude-context-bar
 /plugin install context-bar@claude-context-bar
 ```
 
-From your shell: `claude plugin install context-bar@claude-context-bar` (after `claude plugin marketplace add
-fatonsopa/claude-context-bar`).
+Shell alternative:
 
-To run a local checkout for one session: `claude --plugin-dir <path>/claude-context-bar`.
+```bash
+claude plugin marketplace add fatonsopa/claude-context-bar
+claude plugin install context-bar@claude-context-bar
+```
+
+Load a local checkout for one session:
+
+```bash
+claude --plugin-dir <path>/claude-context-bar
+```
 
 ## Update and uninstall
 
@@ -77,135 +71,171 @@ claude plugin update context-bar@claude-context-bar
 claude plugin uninstall context-bar@claude-context-bar
 ```
 
-Auto-update is off for this marketplace by default. Turn it on in `/plugin` → **Marketplaces**.
+Auto-update is off by default for this marketplace. Enable it in `/plugin` → `Marketplaces`.
 
 ## Usage
 
-### The Context Bar
+### Context bar
 
-A live bar above the prompt: how full the context window is, what fills it, and your rate limits.
+The bar renders above the prompt and refreshes within 1.5 s of every prompt and tool call.
 
 ![The bar with its categories open](docs/images/bar-categories.png)
 
-- **How full the context is**: tokens used, where auto-compact starts, and a % badge that turns yellow at 60% of the
-  way to auto-compact and red at 85%. `est.` means a local estimate; press **recalculate** for an exact count (free).
-- **What fills it**: the colour strip shows the window by category. Press `▸` (or click the strip) to list the
-  categories with their tokens. Press a category to see its items, largest first, and an item marked `▸` to see its
-  sections or tools. `✕ close` closes it.
-- **Rate limits and cost**: each rate-limit window (session, week, a model's week) with a meter, % and time to reset,
-  and this session's cost at API prices.
-- **Handoff buttons**: **handoff & compact** and **handoff & clear** ([Handoff](#handoff)). At a natural stopping point,
-  the bar marks the one to press.
-- **Context doctor progress**: while the doctor's AI works, a line shows its progress. Press it for the summary, the
-  top 5 actions (**draft** puts one in your prompt box) and the audit file (**[copy path]**, **[open doctor]**). `✕`
-  removes the line.
+- **Usage**: tokens used, the auto-compaction threshold and a percentage badge. The badge turns yellow at 60% of the
+  distance to auto-compaction and red at 85%. `est.` marks a local estimate. Select `recalculate` for an exact count
+  at no cost.
+- **Composition**: the colour strip divides the window by category. Select `▸` or the strip to list the categories
+  with their token counts. Select a category to list its items, largest first. Select an item marked `▸` to list its
+  sections or tools. Select `✕ close` to collapse the list.
+- **Rate limits and cost**: each rate-limit window (session, week, per-model week) shows a meter, a percentage and the
+  time to reset. The session cost is shown at API prices.
+- **Handoff buttons**: `handoff & compact` and `handoff & clear`. See [Handoff](#handoff). At a task boundary, the bar
+  marks the recommended button with `▣`.
+- **Audit progress**: while the `/context-doctor` AI audit runs, a status line shows its progress. Select the line to
+  view the summary, the top 5 actions and the audit file. `draft` inserts an action into the prompt box. `[copy path]`
+  copies the file path. `[open doctor]` opens the doctor pane. `✕` removes the line.
 
-It updates within 1.5 s of every prompt and tool call.
+### Compaction
+
+The bar prompts compaction after a commit, a push or a skill run of at least `long_skill_run_minutes` (default `5`).
+The prompt appears only when all conditions hold:
+
+- The conversation holds at least `suggest_compact_at_tokens` (default `80000`).
+- No subagent or background command is running, no git merge or rebase is in progress, and no tests are failing.
+- No compaction ran in the last 10 minutes.
+
+Every compaction (`/compact`, auto-compaction or another plugin's) receives a keep list. The summary must retain:
+
+1. Modes and settings switched on or off, and the current state of each.
+2. Approvals, in the user's exact words, with their scope and any pending approval.
+3. The current task or plan, with completed and next steps.
+4. Running subagents and background tasks, with their IDs.
+5. Open errors and failing tests, with the exact message and `file:line`.
+6. Changed files, backup paths and pending commitments.
+
+After compaction, the bar appends a note with the folder, branch, `HEAD` and changed files, read from git. The summary
+is saved to `~/.claude/handoffs/<project>/<time>-compact.md`.
+
+`/compact` shows a warning while a subagent, background command, merge or rebase is active, or while tests fail.
+
+When one tool result reaches `long_output_tokens` (default `15000`), the bar recommends a subagent for long logs and
+files.
 
 ### Handoff
 
-**handoff & compact** saves a handoff and keeps the session, with a lighter context: use it to carry on with the same
-work. **handoff & clear** saves a handoff and starts a clean conversation: use it before unrelated work. Both:
+- `handoff & compact` saves a handoff, then compacts the conversation. Use it to continue the same task with a smaller
+  context.
+- `handoff & clear` saves a handoff, then runs `/clear`. Use it before switching to unrelated work.
+- `/context-bar handoff` runs the same flow as `handoff & clear`.
 
-1. Claude writes the handoff to a hidden draft file. It is not printed in the chat.
-2. The bar checks it. Required: Goal, Where things stand, Decisions and approvals, Next steps, How to verify, How to
-   resume, and Open tasks (when there are any). If anything is missing, the file is saved and flagged, and nothing is
-   compacted or cleared.
-3. The bar saves it in your project, with the open tasks attached for the next session.
-4. The bar compacts or runs `/clear`.
+Both buttons run this sequence:
+
+1. Claude writes the handoff to a hidden draft file. The chat does not display it.
+2. The bar validates the required sections: `Goal`, `Where things stand`, `Decisions and approvals`, `Next steps`,
+   `How to verify`, `How to resume`, and `Open tasks` when tasks exist. If a section is missing, the bar saves and
+   flags the file and does not compact or clear.
+3. The bar saves the handoff to `handoff_folder` (default `.claude/knowledge/handoffs`, relative to the repository
+   root) with the open tasks attached. Outside a git repository, it saves to `~/.claude/handoffs/<project>/`.
+4. The bar compacts the conversation or runs `/clear`.
 
 ![After handoff & compact: the context went from 21% to 1%, and the handoff path](docs/images/handoff-compact-done.png)
 
 ![After handoff & clear: the handoff path and the Continue offer](docs/images/handoff-clear-done.png)
 
-Click the handoff path under the result to open the file. After `/clear`, or in a new session within 6 hours, press
-**Continue**: it puts a request in your prompt box to recreate the open tasks and follow the handoff's "How to
-resume". It goes away when you send anything else.
+To resume:
 
-Every compaction, yours or automatic, keeps your approvals, the plan and open errors. Its summary is saved to
-`~/.claude/handoffs/<project>/<time>-compact.md`.
+- Select the handoff path under the result to open the file.
+- After `/clear`, or in a new session within `offer_handoff_hours` (default `6`), select `Continue`. It inserts a
+  request into the prompt box to recreate the open tasks and follow the handoff's `How to resume` section.
+- Send any other message to dismiss `Continue`.
 
 ### Context doctor
 
-An audit of what takes room in the context window, by the same categories as the bar. Open it with
-`/context-doctor`.
+`/context-doctor` audits the tokens loaded on every request, grouped by the bar's categories. Run it when context
+usage is already high at session start, after adding MCP servers, skills, agents or memory files, or when
+auto-compaction triggers earlier than expected.
 
-`context-doctor` measures each category and flags what costs tokens on every request: large memory files, MCP
-servers you never call, skills Claude can't see, unused agents, and how close auto-compact is. On request, an AI
-audit turns each finding into step-by-step fixes with the tokens each one frees, and **draft** hands a fix to Claude,
-which asks before editing.
+```
+/context-doctor [--model=opus|sonnet|haiku|fable|<id>] [--effort=low|medium|high|xhigh|max] [ask]
+```
 
-Use it when the context is already large at the start of a session; after adding MCP servers, skills,
-agents or memory files; or when auto-compact keeps arriving sooner than you expect.
+`--model` and `--effort` set the model and effort of the AI audit. `ask` starts the AI audit immediately.
 
-`/context-doctor [--model=opus|sonnet|haiku|fable|<id>] [--effort=low|medium|high|xhigh|max] [ask]`
-
-- **Findings by category**, the same categories as the bar. Press a category to show only its findings; press a
-  finding to see what was measured and why it matters. **⟳ rescan** measures again; **✕ close** (or Escape) closes
-  the pane.
-- **AI audit** (paid, optional): a summary and a step-by-step plan per finding, with the tokens each step frees. The
-  cost is shown on the **✦ ask AI** button. Saved as Markdown with `CD-` references in the
-  project's `.claude/` folder: **[open]** opens the file, **[copy path]** copies its path, and `▸ full audit`
-  shows it in the pane.
-- **Deep-dive** (paid, optional): a finer plan from one memory file's full text.
-- **Draft**: puts any step's instruction in the prompt box. Nothing runs until you press Enter, and it asks before
-  editing.
-- **Ready-made commands** to copy: `/mcp`, `ENABLE_TOOL_SEARCH=true`, `/skill-doctor`, `/agents`, `/compact`,
-  `/clear`, a file's path.
-- **Progress in the bar** while the AI works, so the pane can be closed.
-
-<img src="docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
-
-It checks, for free and locally:
+Local checks, at no cost:
 
 | Category | Flags | Severity |
 |---|---|---|
-| memory files | A file of 3k+ tokens | med, high from 10k |
-| mcp tools | A server of 2k+ tokens never called this session | med, high from 10k |
-| skills | Skills that don't fit the listing · a listing of 3k+ tokens | med · low |
-| agents | Agent descriptions of 2k+ tokens | low |
-| tools · system prompt | 25k+ · 10k+ tokens | info |
-| messages | Context 40% / 60% of the way to auto-compact | med / high |
+| memory files | A file of 3k+ tokens | `med`, `high` from 10k |
+| mcp tools | A server of 2k+ tokens never called this session | `med`, `high` from 10k |
+| skills | Skills that don't fit the listing · a listing of 3k+ tokens | `med` · `low` |
+| agents | Agent descriptions of 2k+ tokens | `low` |
+| tools · system prompt | 25k+ · 10k+ tokens | `info` |
+| messages | Context at 40% / 60% of the distance to auto-compaction | `med` / `high` |
+
+Pane controls:
+
+- **Findings**: select a category to filter its findings. Select a finding to view the measurement and its impact.
+  `⟳ rescan` measures again. `✕ close` or `Escape` closes the pane.
+- **AI audit** (paid, optional): select `✦ ask AI`. The button shows the cost before sending. The audit returns a
+  summary and a step-by-step plan per finding, with the tokens each step frees. The audit is saved as Markdown with
+  `CD-` references in the project's `.claude/` folder. `[open]` opens the file, `[copy path]` copies its path and
+  `▸ full audit` renders it in the pane.
+- **Deep-dive** (paid, optional): generates a finer plan from the full text of one memory file.
+- **Draft**: `draft` inserts a step's instruction into the prompt box. Nothing runs until you press `Enter`. Claude
+  asks before editing files.
+- **Commands to copy**: `/mcp`, `ENABLE_TOOL_SEARCH=true`, `/skill-doctor`, `/agents`, `/compact`, `/clear` and file
+  paths.
+- **Background progress**: the bar shows the audit's progress. Close the pane while the audit runs.
+
+<img src="docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
 
 ### Commands
 
-| Command | Does |
+| Command | Action |
 |---|---|
-| `/context-bar` · `off` · `pane` | Show · hide · open as a pane |
-| `/context-bar recalculate` | Exact count |
-| `/context-bar handoff` | Same as **handoff & clear** |
-| `/context-bar status` | Version, running work, suggestion, last handoff, open tasks, settings |
-| `/context-doctor help` | Usage |
+| `/context-bar` | Show the bar. |
+| `/context-bar off` | Hide the bar. |
+| `/context-bar pane` | Open the bar as a pane. |
+| `/context-bar recalculate` | Replace the estimate with an exact count. |
+| `/context-bar handoff` | Run `handoff & clear`. |
+| `/context-bar status` | Print the version, running work, current suggestion, last handoff, open tasks and settings. |
+| `/context-doctor` | Open the context doctor. |
+| `/context-doctor help` | Print usage. |
 
 ## Settings
 
-`/plugin` → **Installed** → **context-bar** → **Configure options**.
+Open `/plugin` → `Installed` → `context-bar` → `Configure options`.
 
-| Option | Default |
-|---|---|
-| Suggest compacting at (tokens of conversation) | 80,000 |
-| Long output tip at (tokens in one tool result) | 15,000 |
-| Long skill run (minutes) | 5 |
-| Offer a handoff for (hours) | 6 |
-| Handoff folder (relative to the repository) | `.claude/knowledge/handoffs` |
-| Commit handoffs | on |
+| Option | Key | Default | Effect |
+|---|---|---|---|
+| Suggest compacting at (tokens) | `suggest_compact_at_tokens` | `80000` | Minimum conversation size for compaction prompts. |
+| Long output tip at (tokens) | `long_output_tokens` | `15000` | Tool result size that triggers the subagent recommendation. |
+| Long skill run (minutes) | `long_skill_run_minutes` | `5` | Skill run duration that counts as finished work. |
+| Offer a handoff for (hours) | `offer_handoff_hours` | `6` | Maximum handoff age for `Continue`. |
+| Handoff folder | `handoff_folder` | `.claude/knowledge/handoffs` | Handoff location, relative to the repository root. |
+| Commit handoffs | `commit_handoffs` | `true` | Commit each saved handoff file. The bar never pushes. |
 
 ## Privacy and cost
 
-The bar, the suggestions and the doctor's checks run locally. **recalculate** is free. A handoff is one normal Claude
-turn. **ask AI** and **deep-dive** send the measurements (or one file) to the chosen model; each button shows the cost
-first. Handoffs are committed to your repository, one file each, never pushed; turn this off with **Commit
-handoffs**.
+- The bar, the compaction prompts and the doctor's checks run locally.
+- `recalculate` runs at no cost.
+- A handoff costs one Claude turn.
+- `✦ ask AI` and deep-dive send the measurements, or one file, to the selected model. Each button shows its cost
+  before sending.
+- The bar commits each handoff to the repository as one file and never pushes. Set `commit_handoffs` to `false` to
+  disable commits.
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening one, run:
+Run before opening an issue or pull request:
 
 ```bash
 claude plugin validate .
 claude plugin test
 ```
 
+Follow [`docs/style-guide.md`](docs/style-guide.md) for documentation changes.
+
 ## License
 
-No license yet: all rights reserved by Faton Sopa.
+No license. All rights reserved by Faton Sopa.
