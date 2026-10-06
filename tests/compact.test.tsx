@@ -869,7 +869,7 @@ test('git push output: what was sent is read from the "from -> to" line', () => 
   expect(hostName('origin')).toBeNull()
   // where it went, from the "To <remote>" line, for any remote
   expect(pushedTo('To github.com:me/app.git\n   548e39a..abc1234  dev -> dev')).toBe('GitHub')
-  expect(pushedTo('To git@github.com:fatonsopa/ai-dev-architecture.git\n * [new branch]      main -> main')).toBe('GitHub')
+  expect(pushedTo('To git@github.com:fatonsopa/claude-context-bar.git\n * [new branch]      main -> main')).toBe('GitHub')
   expect(pushedTo('To https://gitlab.com/me/app.git\n   1a..2b  main -> main')).toBe('GitLab')
   expect(pushedTo('To ssh://git@bitbucket.org:7999/me/app.git\n   1a..2b  main -> main')).toBe('Bitbucket')
   expect(pushedTo('To https://git.example.org/me/app.git\n   1a..2b  main -> main')).toBe('git.example.org')

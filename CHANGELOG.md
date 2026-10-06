@@ -1,9 +1,17 @@
 # Changelog
 
-All notable changes to the mods in this repository. The format follows
+All notable changes to context-bar. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
 ## context-bar
+
+### [0.17.8] — 2026-10-07
+
+#### Changed
+- The repository is `fatonsopa/claude-context-bar` (was `fatonsopa/ai-dev-architecture`) and holds only this plugin,
+  at its root. The marketplace is `claude-context-bar`: install with
+  `/plugin install context-bar --marketplace fatonsopa/claude-context-bar`. If you installed from the
+  `ai-dev-architecture` marketplace, remove it (`/plugin marketplace remove ai-dev-architecture`) and install again.
 
 ### [0.17.7] — 2026-10-07
 

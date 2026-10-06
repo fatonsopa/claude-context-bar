@@ -1,8 +1,8 @@
-# ai-dev-architecture
+# claude-context-bar
 
 Keep long Claude Code sessions on track: see what fills the context, and hand work over without losing it.
 
-![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](context-bar/docs/images/bar.png)
+![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](docs/images/bar.png)
 
 Long sessions fail in three quiet ways. This repository's **context-bar** plugin fixes each:
 
@@ -13,7 +13,7 @@ Long sessions fail in three quiet ways. This repository's **context-bar** plugin
 - **You can't see what costs tokens on every turn.** The context doctor finds big memory files, unused MCP servers
   and skills Claude can't see, and plans the fix.
 
-Version 0.17.7 · [changelog](CHANGELOG.md)
+Version 0.17.8 · [changelog](CHANGELOG.md)
 
 ## Contents
 
@@ -36,26 +36,26 @@ Version 0.17.7 · [changelog](CHANGELOG.md)
 In a Claude Code session:
 
 ```
-/plugin install context-bar --marketplace fatonsopa/ai-dev-architecture
+/plugin install context-bar --marketplace fatonsopa/claude-context-bar
 ```
 
 Confirm the marketplace, then pick a scope. The bar appears above the prompt. The same in two steps:
 
 ```
-/plugin marketplace add fatonsopa/ai-dev-architecture
-/plugin install context-bar@ai-dev-architecture
+/plugin marketplace add fatonsopa/claude-context-bar
+/plugin install context-bar@claude-context-bar
 ```
 
-From your shell: `claude plugin install context-bar@ai-dev-architecture` (after `claude plugin marketplace add
-fatonsopa/ai-dev-architecture`).
+From your shell: `claude plugin install context-bar@claude-context-bar` (after `claude plugin marketplace add
+fatonsopa/claude-context-bar`).
 
-To run a local checkout for one session: `claude --plugin-dir <path>/context-bar`.
+To run a local checkout for one session: `claude --plugin-dir <path>/claude-context-bar`.
 
 ## Update and uninstall
 
 ```bash
-claude plugin update context-bar@ai-dev-architecture
-claude plugin uninstall context-bar@ai-dev-architecture
+claude plugin update context-bar@claude-context-bar
+claude plugin uninstall context-bar@claude-context-bar
 ```
 
 Auto-update is off for this marketplace by default. Turn it on in `/plugin` → **Marketplaces**.
@@ -66,7 +66,7 @@ Auto-update is off for this marketplace by default. Turn it on in `/plugin` → 
 
 A live bar above the prompt: how full the context window is, what fills it, and your rate limits.
 
-![The bar with its categories open](context-bar/docs/images/bar-categories.png)
+![The bar with its categories open](docs/images/bar-categories.png)
 
 - **How full the context is**: tokens used, where auto-compact starts, and a % badge that turns yellow at 60% of the
   way to auto-compact and red at 85%. `est.` means a local estimate; press **recalculate** for an exact count (free).
@@ -95,9 +95,9 @@ work. **handoff & clear** saves a handoff and starts a clean conversation: use i
 3. The bar saves it in your project, with the open tasks attached for the next session.
 4. The bar compacts or runs `/clear`.
 
-![After handoff & compact: the context went from 21% to 1%, and the handoff path](context-bar/docs/images/handoff-compact-done.png)
+![After handoff & compact: the context went from 21% to 1%, and the handoff path](docs/images/handoff-compact-done.png)
 
-![After handoff & clear: the handoff path and the Continue offer](context-bar/docs/images/handoff-clear-done.png)
+![After handoff & clear: the handoff path and the Continue offer](docs/images/handoff-clear-done.png)
 
 Click the handoff path under the result to open the file. After `/clear`, or in a new session within 6 hours, press
 **Continue**: it puts a request in your prompt box to recreate the open tasks and follow the handoff's "How to
@@ -135,7 +135,7 @@ agents or memory files; or when auto-compact keeps arriving sooner than you expe
   `/clear`, a file's path.
 - **Progress in the bar** while the AI works, so the pane can be closed.
 
-<img src="context-bar/docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
+<img src="docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
 
 It checks, for free and locally:
 
@@ -183,8 +183,8 @@ handoffs**.
 Issues and pull requests are welcome. Before opening one, run:
 
 ```bash
-claude plugin validate context-bar
-claude plugin test context-bar
+claude plugin validate .
+claude plugin test
 ```
 
 ## License
