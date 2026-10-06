@@ -29,7 +29,6 @@ Version 0.17.7 · [changelog](CHANGELOG.md)
 ## Requirements
 
 - Claude Code 2.1.275 or later (built and tested on 2.1.292).
-- git, for the commit and push suggestions and for committing handoffs.
 - A dark terminal theme. Light themes are not tuned yet.
 
 ## Install
@@ -48,8 +47,7 @@ Confirm the marketplace, then pick a scope. The bar appears above the prompt. Th
 ```
 
 From your shell: `claude plugin install context-bar@ai-dev-architecture` (after `claude plugin marketplace add
-fatonsopa/ai-dev-architecture`). The repository is private: Claude Code clones it with your own GitHub access (`gh auth
-login` or an SSH key).
+fatonsopa/ai-dev-architecture`).
 
 To run a local checkout for one session: `claude --plugin-dir <path>/context-bar`.
 
@@ -77,8 +75,8 @@ Auto-update is off for this marketplace by default. Turn it on in `/plugin` → 
   sections or tools. `✕ close` closes it.
 - **Rate limits and cost**: each rate-limit window (session, week, a model's week) with a meter, % and time to reset,
   and this session's cost at API prices.
-- **Handoff buttons**: **handoff & compact** and **handoff & clear** ([Handoff](#handoff)). After a commit, a push or
-  a long skill run, the bar marks the one to press.
+- **Handoff buttons**: **handoff & compact** and **handoff & clear** ([Handoff](#handoff)). At a natural stopping point,
+  the bar marks the one to press.
 - **Context doctor progress**: while the doctor's AI works, a line shows its progress. Press it for the summary, the
   top 5 actions (**draft** puts one in your prompt box) and the audit file (**[copy path]**, **[open doctor]**). `✕`
   removes the line.
@@ -94,8 +92,7 @@ work. **handoff & clear** saves a handoff and starts a clean conversation: use i
 2. The bar checks it. Required: Goal, Where things stand, Decisions and approvals, Next steps, How to verify, How to
    resume, and Open tasks (when there are any). If anything is missing, the file is saved and flagged, and nothing is
    compacted or cleared.
-3. The bar saves it as `<repo>/.claude/knowledge/handoffs/<name>-handoff.md`, commits that file alone, and adds the
-   git state and the open tasks (as JSON).
+3. The bar saves it in your project, with the open tasks attached for the next session.
 4. The bar compacts or runs `/clear`.
 
 ![After handoff & compact: the context went from 21% to 1%, and the handoff path](context-bar/docs/images/handoff-compact-done.png)
@@ -106,10 +103,7 @@ Click the handoff path under the result to open the file. After `/clear`, or in 
 **Continue**: it puts a request in your prompt box to recreate the open tasks and follow the handoff's "How to
 resume". It goes away when you send anything else.
 
-Pressed while Claude is mid-step, a button does nothing. If git refuses the commit, the line says
-`(not committed: <reason>)` and the compact or clear still runs.
-
-Every compaction, yours or automatic, keeps approvals, the plan, modes and open errors. Its summary is saved to
+Every compaction, yours or automatic, keeps your approvals, the plan and open errors. Its summary is saved to
 `~/.claude/handoffs/<project>/<time>-compact.md`.
 
 ### Context doctor
@@ -133,8 +127,8 @@ agents or memory files; or when auto-compact keeps arriving sooner than you expe
   finding to see what was measured and why it matters. **⟳ rescan** measures again; **✕ close** (or Escape) closes
   the pane.
 - **AI audit** (paid, optional): a summary and a step-by-step plan per finding, with the tokens each step frees. The
-  cost is shown on the **✦ ask AI** button. Saved as Markdown with `CD-` references in
-  `.claude/knowledge/context-audits/`: **[open]** opens the file, **[copy path]** copies its path, and `▸ full audit`
+  cost is shown on the **✦ ask AI** button. Saved as Markdown with `CD-` references in the
+  project's `.claude/` folder: **[open]** opens the file, **[copy path]** copies its path, and `▸ full audit`
   shows it in the pane.
 - **Deep-dive** (paid, optional): a finer plan from one memory file's full text.
 - **Draft**: puts any step's instruction in the prompt box. Nothing runs until you press Enter, and it asks before
@@ -183,19 +177,17 @@ agents or memory files; or when auto-compact keeps arriving sooner than you expe
 
 The bar, the suggestions and the doctor's checks run locally. **recalculate** is free. A handoff is one normal Claude
 turn. **ask AI** and **deep-dive** send the measurements (or one file) to the chosen model; each button shows the cost
-first. The plugin commits handoffs but never pushes.
+first. Handoffs are committed to your repository, one file each, never pushed; turn this off with **Commit
+handoffs**.
 
 ## Contributing
 
-Open an issue or a pull request. Before each change:
+Issues and pull requests are welcome. Before opening one, run:
 
 ```bash
 claude plugin validate context-bar
 claude plugin test context-bar
 ```
-
-Bump the version in `context-bar/.claude-plugin/plugin.json` and `context-bar/hooks/version.ts`, and add a
-[changelog](CHANGELOG.md) entry.
 
 ## License
 
