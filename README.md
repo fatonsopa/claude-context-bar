@@ -108,10 +108,10 @@ Every compaction, yours or automatic, keeps your approvals, the plan and open er
 
 ### Context doctor
 
-**What it is:** an audit of what takes room in the context window, by the same categories as the bar. Open it with
+An audit of what takes room in the context window, by the same categories as the bar. Open it with
 `/context-doctor`.
 
-**What it does:** it measures each category and flags what costs tokens on every request: large memory files, MCP
+`context-doctor` measures each category and flags what costs tokens on every request: large memory files, MCP
 servers you never call, skills Claude can't see, unused agents, and how close auto-compact is. On request, an AI
 audit turns each finding into step-by-step fixes with the tokens each one frees, and **draft** hands a fix to Claude,
 which asks before editing.
