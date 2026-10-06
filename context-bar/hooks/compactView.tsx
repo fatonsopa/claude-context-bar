@@ -4,7 +4,7 @@
 // compaction shrinks the context, or a newer moment replaces it; it shows its age once a minute has passed.
 import type { BoxProps, ButtonProps, ElementConstructor, LinkProps, RenderElement, TextProps } from 'claude-code'
 
-import type { Snapshot, CompactTip } from '../types'
+import type { CompactTip } from '../types'
 import { fileUrl, tipText } from './compact'
 
 type Els = {
@@ -25,7 +25,6 @@ export type CompactArgs = {
   link: string | null
   /** A turn is running: buttons that act on the conversation wait until it ends. */
   isWorking: boolean
-  snap: Snapshot | null
   now: number
   on: {
     resume: () => void
@@ -70,7 +69,7 @@ export function compactLine(a: CompactArgs): RenderElement | null {
     <Box key="compact" marginTop={1} flexDirection="row" columnGap={2}>
       <Box key="compact-text">
         <Text color={MESSAGE_FG} wrap="wrap">
-          {tipText(tip, a.snap, a.now)}
+          {tipText(tip, a.now)}
         </Text>
       </Box>
       {tip.reason === 'resume' && <Button key="compact-resume" variant="primary" label="Continue" onPress={() => a.on.resume()} />}

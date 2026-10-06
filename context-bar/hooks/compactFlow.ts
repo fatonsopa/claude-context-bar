@@ -43,6 +43,7 @@ import {
   isTestRun,
   largeOutputText,
   pushed,
+  pushedTo,
   missingSections,
   projectSlug,
   resumePrompt,
@@ -146,7 +147,7 @@ export function createCompactFlow(settings: BarSettings) {
   /** Background commands this session started and has not heard the end of: task id → the call that started it. */
   const shells = new Map<string, string | null>()
   /** A moment that came while something was still running: offered as soon as nothing is. */
-  let deferred: { reason: 'saved' | 'pushed' | 'finished'; what: string | null } | null = null
+  let deferred: { reason: 'saved' | 'pushed' | 'finished'; what: string | null; to: string | null } | null = null
 
   async function repoOf(t: CompactOps): Promise<{ root: string; gitDir: string; main: string } | null> {
     if (repo !== undefined) return repo
@@ -192,7 +193,7 @@ export function createCompactFlow(settings: BarSettings) {
     if (!deferred || busyReason(busy)) return
     const d = deferred
     deferred = null
-    await suggest(d.reason, d.what)
+    await suggest(d.reason, d.what, d.to)
   }
 
   /** A background task's notification arrived: if it is one of this session's commands and it ended, it no longer counts. */
@@ -206,18 +207,18 @@ export function createCompactFlow(settings: BarSettings) {
     await offerDeferred()
   }
 
-  async function suggest(reason: 'saved' | 'pushed' | 'finished', what: string | null): Promise<void> {
+  async function suggest(reason: 'saved' | 'pushed' | 'finished', what: string | null, to: string | null = null): Promise<void> {
     const t = compactOps
     if (!t) return
     busy = { ...busy, subagents: await countSubagents(t) }
     if (busyReason(busy)) {
-      deferred = { reason, what }
+      deferred = { reason, what, to }
       return
     }
     const now = await t.now()
     const minConversation = settings.suggestCompactAtTokens
     if (!shouldSuggest({ snap: await t.snapshot(), busy, lastCompactAt, now, minConversation })) return
-    await t.setTip({ reason, at: now, what, handoff: null })
+    await t.setTip({ reason, at: now, what, handoff: null, ...(to ? { to } : {}) })
   }
 
   /** After each main-conversation tool call: a skill used, a test run, a commit, a push, a very long answer. */
@@ -241,7 +242,7 @@ export function createCompactFlow(settings: BarSettings) {
       const c = isError ? null : committed(call.command, out)
       if (c) await suggest('saved', c.subject)
       const p = isError ? null : pushed(call.command, out)
-      if (p) await suggest('pushed', p)
+      if (p) await suggest('pushed', p, pushedTo(out))
     }
     const tokens = estimate(out)
     if (isLargeOutput(tool, tokens, settings.longOutputTokens)) {

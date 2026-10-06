@@ -159,6 +159,8 @@ export type CompactTip = {
   what: string | null
   /** For `resume`: the handoff file to read. */
   handoff: string | null
+  /** For `pushed`: where the push went (`GitHub`, `GitLab`, or the host); absent when it is not known. */
+  to?: string | null
 }
 
 declare module 'claude-code' {

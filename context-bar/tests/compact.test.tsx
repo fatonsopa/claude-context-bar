@@ -29,6 +29,7 @@ import {
   namedHandoffPath,
   offersHandoff,
   pushed,
+  pushedTo,
   settingsFrom,
   handoffFile,
   handoffRequest,
@@ -311,7 +312,7 @@ test('everything the person reads uses Claude Code\'s own words: compact, contex
     { reason: 'resume', at: 0, what: null, handoff: '/home/me/.claude/handoffs/proj/x.md' },
   ]
   const texts = [
-    ...tips.map(t => tipText(t, LONG_SNAP, 30 * 60_000)),
+    ...tips.map(t => tipText(t, 30 * 60_000)),
     doneText({ before: 400_000, after: 90_000, max: 1_000_000, at: 0, auto: false }),
     doneText({ max: 1_000_000, at: 0, auto: true }),
     busyWarning('a push or release is still running'),
@@ -322,13 +323,13 @@ test('everything the person reads uses Claude Code\'s own words: compact, contex
     clearDoneText(0),
   ]
   for (const t of texts) expect(INVENTED.test(t)).toBe(false)
-  expect(tipText(tips[0] as CompactTip, LONG_SNAP, 0)).toBe('✓ Changes committed — good moment for handoff & compact · context 21% full')
-  expect(tipText(tips[1] as CompactTip, LONG_SNAP, 0)).toBe(
-    '✓ Pushed (dev -> dev) — handoff & compact to keep going, or handoff & clear for an unrelated next task · context 21% full',
-  )
-  expect(tipText(tips[2] as CompactTip, LONG_SNAP, 0)).toBe(
-    '✓ /push-pipeline finished — handoff & compact to keep going, or handoff & clear for an unrelated next task · context 21% full',
-  )
+  // what just finished, and nothing more: the marked button says which action fits, the bar how full the context is
+  expect(tipText(tips[0] as CompactTip, 0)).toBe('✓ Changes committed')
+  expect(tipText(tips[1] as CompactTip, 0)).toBe('✓ Pushed')
+  expect(tipText({ ...(tips[1] as CompactTip), to: 'GitHub' }, 0)).toBe('✓ Pushed to GitHub')
+  expect(tipText(tips[2] as CompactTip, 0)).toBe('✓ /push-pipeline finished')
+  // no age, however long it waits
+  expect(tipText(tips[0] as CompactTip, 25 * 60_000)).toBe('✓ Changes committed')
   // a handoff is offered at hard ends only, not after every commit
   expect(tips.map(t => offersHandoff(t))).toEqual([false, true, true, false])
   expect(doneText({ before: 400_000, after: 90_000, max: 1_000_000, at: 0, auto: false })).toBe(
@@ -391,7 +392,7 @@ test('"handoff & compact": the handoff goes to a draft (never printed), is saved
   await $.session.measure(MEASURE)
   await $.tool.call({ tool: 'Bash', command: 'git commit -m "Add the export button"' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe('✓ Changes committed — good moment for handoff & compact · context 21% full')
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe('✓ Changes committed')
 
   await ui.press({ key: 'compact-anytime' })
   await w.clock.settle()
@@ -558,7 +559,7 @@ test('a long skill run that ends is a finished piece of work; a short one is not
   await skillRun($, 'lint', 2)
   expect(await ui.find({ key: 'compact-text' })).toBeUndefined()
   await skillRun($, 'push-pipeline', 6)
-  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toMatch(/^✓ \/push-pipeline finished — handoff & compact to keep going/)
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toBe('✓ /push-pipeline finished')
   expect((await ui.find({ key: 'clear-anytime' }))?.text).toBe('handoff & clear')
   expect(await marked(ui, 'clear-anytime-box')).toBe(true)
   await ui.unmount()
@@ -574,7 +575,7 @@ test('while subagents still run nothing is suggested; the moment is offered once
   expect(await ui.find({ key: 'compact-text' })).toBeUndefined()
   w.agents = [{ id: 'a1', description: 'run the tests', type: 'general-purpose', status: 'completed' }]
   await w.clock.advance(12_000)
-  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toMatch(/^✓ \/push-pipeline finished — /)
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toBe('✓ /push-pipeline finished')
   await ui.unmount()
 })
 
@@ -591,7 +592,7 @@ test('a git push that sent something is a hard end; "Everything up-to-date" is n
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ key: 'compact-text' })).toBeUndefined()
   await $.tool.call({ tool: 'Bash', command: 'git push origin dev' })
-  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toMatch(/^✓ Pushed \(dev -> dev\) — handoff & compact to keep going/)
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim() ?? '').toBe('✓ Pushed to GitHub')
   expect(await marked(ui, 'clear-anytime-box')).toBe(true)
   await ui.unmount()
 })
@@ -795,6 +796,15 @@ test('git push output: what was sent is read from the "from -> to" line', () => 
   expect(pushed('git push', 'Everything up-to-date')).toBeNull()
   expect(pushed('git push --dry-run', '   548e39a..abc1234  dev -> dev')).toBeNull()
   expect(pushed('git status', '   548e39a..abc1234  dev -> dev')).toBeNull()
+  // where it went, from the "To <remote>" line, for any remote
+  expect(pushedTo('To github.com:me/app.git\n   548e39a..abc1234  dev -> dev')).toBe('GitHub')
+  expect(pushedTo('To git@github.com:fatonsopa/ai-dev-architecture.git\n * [new branch]      main -> main')).toBe('GitHub')
+  expect(pushedTo('To https://gitlab.com/me/app.git\n   1a..2b  main -> main')).toBe('GitLab')
+  expect(pushedTo('To ssh://git@bitbucket.org:7999/me/app.git\n   1a..2b  main -> main')).toBe('Bitbucket')
+  expect(pushedTo('To https://git.example.org/me/app.git\n   1a..2b  main -> main')).toBe('git.example.org')
+  expect(pushedTo('To /Users/me/backup.git\n   1a..2b  main -> main')).toBeNull()
+  expect(pushedTo('To ../backup\n   1a..2b  main -> main')).toBeNull()
+  expect(pushedTo('Everything up-to-date')).toBeNull()
 })
 
 test('nothing project-specific: a lock file or a skill name means nothing unless the run itself ends', async ($, on) => {
@@ -804,7 +814,7 @@ test('nothing project-specific: a lock file or a skill name means nothing unless
   await $.tool.call({ tool: 'Skill', skill: 'push-pipeline' })
   await $.tool.call({ tool: 'Bash', command: 'git commit -m "Add the export button"' })
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe('✓ Changes committed — good moment for handoff & compact · context 21% full')
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe('✓ Changes committed')
   await ui.unmount()
 })
 
@@ -847,7 +857,7 @@ test('while a background command runs nothing is suggested; when its notificatio
   expect(await ui.find({ key: 'compact-text' })).toBeUndefined()
 
   await $.prompt.submit({ text: notification('bg1', 'failed'), origin: { kind: 'task-notification' }, wait: false })
-  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe('✓ Changes committed — good moment for handoff & compact · context 21% full')
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe('✓ Changes committed')
   await ui.unmount()
 })
 
@@ -999,7 +1009,7 @@ test('the top line always has "handoff & compact": dim when it is not the time, 
   await ui.unmount()
 })
 
-test('a suggestion stays through the person\'s next messages and shows its age; it goes when acted on or when a compaction happens', async ($, on) => {
+test('a suggestion stays through the person\'s next messages; it goes when acted on or when a compaction happens', async ($, on) => {
   const w = world(on)
   await $.session.start(START)
   await $.session.measure(MEASURE)
@@ -1008,9 +1018,7 @@ test('a suggestion stays through the person\'s next messages and shows its age; 
   await $.prompt.submit({ text: 'make the buttons unbold', origin: { kind: 'composer' }, wait: false })
   await $.prompt.submit({ text: '<task-notification><task-id>x</task-id><status>completed</status></task-notification>', origin: { kind: 'task-notification' }, wait: false })
   await w.clock.advance(25 * 60_000)
-  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe(
-    '✓ Changes committed — good moment for handoff & compact · context 21% full · 25 min ago',
-  )
+  expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toBe('✓ Changes committed')
   expect(await marked(ui, 'compact-anytime-box')).toBe(true)
 
   // any compaction (here Claude Code's own) shrinks the context: the suggestion has done its job

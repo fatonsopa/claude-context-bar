@@ -107,6 +107,29 @@ export function pushed(command: string, output: string): string | null {
   return m?.[1] && m[2] ? `${m[1]} -> ${m[2]}` : null
 }
 
+/** The services a push most often goes to, by host; any other host is named as it is. */
+const KNOWN_HOSTS: { readonly [host: string]: string } = {
+  'github.com': 'GitHub',
+  'gitlab.com': 'GitLab',
+  'bitbucket.org': 'Bitbucket',
+  'codeberg.org': 'Codeberg',
+  'dev.azure.com': 'Azure DevOps',
+  'ssh.dev.azure.com': 'Azure DevOps',
+}
+
+/**
+ * Where a `git push` went, from its `To <remote>` line: `GitHub` for github.com, any other host as it is; null for a
+ * push to a folder on this machine or output with no such line.
+ */
+export function pushedTo(output: string): string | null {
+  const url = /^To (\S+)/m.exec(output)?.[1]
+  if (!url) return null
+  // https://host/…, ssh://user@host:port/…, or the scp form user@host:path
+  const host = /^[a-z][\w+.-]*:\/\/(?:[^@/]+@)?([^/:]+)/i.exec(url)?.[1] ?? /^(?:[^@/:]+@)?([^/:]+):/.exec(url)?.[1] ?? null
+  if (!host || !host.includes('.')) return null
+  return KNOWN_HOSTS[host.toLowerCase()] ?? host.toLowerCase()
+}
+
 const TEST_RUN =
   /\b(vitest|jest|playwright\s+test|pytest|deno\s+test|bun\s+test|go\s+test|cargo\s+test|plugin\s+test|(?:npm|pnpm|yarn)\s+(?:run\s+)?test[\w:-]*)\b/
 
@@ -184,21 +207,18 @@ function ago(ms: number): string {
   return `${h} hour${h === 1 ? '' : 's'} ago`
 }
 
-/** The suggestion's first line, in the words Claude Code itself uses: compact, context, clear, handoff. */
-export function tipText(tip: CompactTip, snap: Snapshot | null, now: number): string {
-  const text = tipWords(tip, snap, now)
-  // a suggestion stays until it is acted on, so it says how old it is once a minute has passed
-  return tip.reason !== 'resume' && now - tip.at >= 60_000 ? `${text} · ${ago(now - tip.at)}` : text
-}
-
-function tipWords(tip: CompactTip, snap: Snapshot | null, now: number): string {
+/**
+ * The suggestion: what just finished, and nothing more. Which action fits is shown by the marked button (▣) in the
+ * line above, and how full the context is by the bar itself.
+ */
+export function tipText(tip: CompactTip, now: number): string {
   switch (tip.reason) {
     case 'saved':
-      return `✓ Changes committed — good moment for handoff & compact · context ${fullness(snap)} full`
+      return '✓ Changes committed'
     case 'pushed':
-      return `✓ Pushed${tip.what ? ` (${tip.what})` : ''} — handoff & compact to keep going, or handoff & clear for an unrelated next task · context ${fullness(snap)} full`
+      return tip.to ? `✓ Pushed to ${tip.to}` : '✓ Pushed'
     case 'finished':
-      return `✓ ${tip.what ? `/${tip.what}` : 'The skill run'} finished — handoff & compact to keep going, or handoff & clear for an unrelated next task · context ${fullness(snap)} full`
+      return `✓ ${tip.what ? `/${tip.what}` : 'The skill run'} finished`
     case 'resume':
       return `↺ A handoff from your last session was saved ${ago(now - tip.at)} — continue from it?`
   }
