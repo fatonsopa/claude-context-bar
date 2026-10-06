@@ -1,31 +1,36 @@
 # claude-context-bar
 
-A Claude Code plugin for long sessions: it shows what fills the context window, and hands your work over to the next
-session without losing it.
+A Claude Code plugin for long sessions: it shows what fills the context window and how close auto-compact is, and it
+saves a handoff so that the next session can continue the work.
 
 ![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](docs/images/bar.png)
 
-Two hours into a task, Claude has read a dozen files, you have agreed on an approach, approved a migration and ruled
-out another idea. Then auto-compact starts in the middle of a step. The summary keeps the outline and loses the
-details: the idea you ruled out and why, the command that reproduced the bug, the test that was still failing. Claude
-reads the same files again, suggests the idea you rejected, or asks for an approval you already gave.
+When the context window fills up, Claude Code compacts the conversation automatically, and this can happen in the
+middle of a step. The summary it writes keeps the general state of the work but can lose details you still need, such
+as the approaches you ruled out, the changes you approved, the command that reproduced a bug or the tests that were
+still failing. After the compaction, Claude may read the same files again, propose an approach you already rejected
+or ask again for an approval you already gave.
 
-Starting fresh is no better. After `/clear`, or the next morning, you spend the first minutes explaining again what
-you are building, what is done and what comes next.
+Running `/clear` or starting a new session avoids that summary, but the new conversation knows nothing about the
+previous one, so you have to explain the goal, what is done and what comes next before the work can continue.
 
-And the context fills faster than it should. A large `CLAUDE.md`, MCP servers whose tools you never call, a long list
-of skills: all of it is sent with every request, costs tokens on every turn and brings auto-compact closer. You notice
-only when auto-compact comes early.
+Part of the context is taken before the conversation even starts: memory files such as `CLAUDE.md`, the tool
+definitions of every connected MCP server and the list of available skills are sent with every request, so a large
+memory file or an MCP server whose tools you never use costs tokens on every turn and brings auto-compact closer.
 
-context-bar keeps this in view and gives you a clean place to stop:
+context-bar deals with each of these problems:
 
-- **The bar above the prompt** shows how full the context is, what fills it and how far away auto-compact is. Once
-  the conversation is large, it suggests compacting after a commit, a push or a long skill run: you pick the moment,
-  not auto-compact.
-- **handoff & compact** and **handoff & clear** have Claude write a handoff (goal, where things stand, decisions and
-  approvals, next steps, how to verify, open tasks). The bar checks that nothing is missing, saves it in your project,
-  then compacts or clears. In the next session, **Continue** picks up from it.
-- **`/context-doctor`** finds what costs tokens on every request and plans the fix, with the tokens each step frees.
+- The bar above the prompt shows how many tokens the context holds, how they split across memory files, MCP tools,
+  skills, messages and the other categories, and how close auto-compact is. Once the conversation itself passes
+  80,000 tokens (you can change this), the bar suggests compacting after a commit, a push or a long skill run, so
+  that the compaction happens between steps.
+- **handoff & compact** and **handoff & clear** have Claude write a handoff with the goal, where things stand, the
+  decisions and approvals, the next steps, how to verify the work and the open tasks. The bar checks that every
+  required section is there, saves the file in your project and then compacts or clears the conversation. In the next
+  session, **Continue** puts a request in your prompt box to recreate the open tasks and resume from the handoff.
+- `/context-doctor` measures what is sent with every request, flags large memory files, MCP servers you never call
+  and skills that don't fit the listing, and on request writes a step-by-step plan for each finding, with the tokens
+  each step frees.
 
 Version 0.17.8 · [changelog](CHANGELOG.md)
 
