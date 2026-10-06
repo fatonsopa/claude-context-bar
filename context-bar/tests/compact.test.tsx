@@ -1047,8 +1047,12 @@ test('the buttons look like the categories: a ■ in their own colour, plain lab
   // a suggestion turns the button's ■ into ▣; the band text is not bold
   await $.tool.call({ tool: 'Bash', command: 'git commit -m "Add the export button"' })
   expect(await marked(ui, 'compact-anytime-box')).toBe(true)
-  const band = (await ui.findAll({ type: 'Text' })) as { text?: string; props?: { bold?: boolean } }[]
-  expect(band.find(t => t.text?.includes('Changes committed'))?.props?.bold).toBeFalsy()
+  // the suggestion is yellow text like the rest of the line: no background, not bold
+  const band = (await ui.findAll({ type: 'Text' })) as { text?: string; props?: { bold?: boolean; color?: string; backgroundColor?: string } }[]
+  const tip = band.find(t => t.text?.includes('Changes committed'))
+  expect(tip?.props?.bold).toBeFalsy()
+  expect(tip?.props?.color).toBe(MESSAGE_FG)
+  expect(tip?.props?.backgroundColor).toBeUndefined()
   await ui.unmount()
 })
 
@@ -1078,8 +1082,7 @@ test('every button colour and the suggestion band keep a contrast of at least 4.
   const categories = Object.entries(PALETTE).filter(([name]) => name !== 'other').map(([, c]) => c)
   for (const b of buttons) for (const c of categories) expect(apart(b, c)).toBeGreaterThanOrEqual(15)
   for (const a of buttons) for (const b of buttons) if (a !== b) expect(apart(a, b)).toBeGreaterThanOrEqual(15)
-  expect(ratio('#111111', '#F2C76E')).toBeGreaterThanOrEqual(4.5)
-  // the yellow status and result text, on a dark terminal's background
+  // the line's yellow text (suggestion, status, result), on a dark terminal's background
   expect(ratio(MESSAGE_FG, DARK)).toBeGreaterThanOrEqual(4.5)
 })
 

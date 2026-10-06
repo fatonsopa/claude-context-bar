@@ -42,7 +42,7 @@ running, what suggestion waits, the last handoff, the settings).
   "Handoff completed on <date, time>: <full path>", with "Compacting… this can take a minute." on the line under it
   (or it runs `/clear`). When it ends: "Compact completed on <date, time>: context went from 89% to 2%." (or "Clear
   completed on …") and "Handoff: <full path>" under it. Every handoff path in the bar is a link that opens the file.
-  These lines are yellow text, with no band behind them. A failed commit is only a note on the handoff line
+  The whole line (suggestions included) is yellow text, with no background. A failed commit is only a note on the handoff line
   ("not committed: <reason>"); a missing or incomplete handoff stops the action and says so ("Handoff failed on …").
   `/context-bar status` shows how the last run ended. A compaction you type, or an automatic one, ends with
   "Handoff: <path>" naming the summary file it saved.

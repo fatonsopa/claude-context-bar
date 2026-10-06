@@ -1,6 +1,6 @@
 {
   "name": "context-bar",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "description": "A live context-window bar above the prompt, /context-doctor, and compact and handoff suggestions at natural stopping points. Works in any project.",
   "author": {
     "name": "Faton Sopa"

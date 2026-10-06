@@ -32,10 +32,7 @@ export type CompactArgs = {
   }
 }
 
-/** The suggestion's own band: yellow with dark text, so it stands apart from the stats above it. */
-export const BAND_BG = '#F2C76E'
-export const BAND_FG = '#111111'
-/** What the bar is doing and what it did: yellow text on the terminal's own background. */
+/** Everything on this line (a suggestion, what the bar is doing, what it did): yellow text, no background. */
 export const MESSAGE_FG = '#F2C76E'
 
 /** One line of a message, its handoff path (if it names it) a link to the file. */
@@ -72,8 +69,8 @@ export function compactLine(a: CompactArgs): RenderElement | null {
   return (
     <Box key="compact" marginTop={1} flexDirection="row" columnGap={2}>
       <Box key="compact-text">
-        <Text backgroundColor={BAND_BG} color={BAND_FG} wrap="wrap">
-          {` ${tipText(tip, a.snap, a.now)} `}
+        <Text color={MESSAGE_FG} wrap="wrap">
+          {tipText(tip, a.snap, a.now)}
         </Text>
       </Box>
       {tip.reason === 'resume' && <Button key="compact-resume" variant="primary" label="Continue" onPress={() => a.on.resume()} />}
