@@ -64,9 +64,9 @@ Auto-update is off for this marketplace by default. Turn it on in `/plugin` → 
 
 ### The Context Bar
 
-![The bar with its categories open](context-bar/docs/images/bar-categories.png)
+A live bar above the prompt: how full the context window is, what fills it, and your rate limits.
 
-**Features:**
+![The bar with its categories open](context-bar/docs/images/bar-categories.png)
 
 - **How full the context is**: tokens used, where auto-compact starts, and a % badge that turns yellow at 60% of the
   way to auto-compact and red at 85%. `est.` means a local estimate; press **recalculate** for an exact count (free).
@@ -116,12 +116,10 @@ servers you never call, skills Claude can't see, unused agents, and how close au
 audit turns each finding into step-by-step fixes with the tokens each one frees, and **draft** hands a fix to Claude,
 which asks before editing.
 
-**When to use it:** when the context is already large at the start of a session; after adding MCP servers, skills,
+Use it when the context is already large at the start of a session; after adding MCP servers, skills,
 agents or memory files; or when auto-compact keeps arriving sooner than you expect.
 
 `/context-doctor [--model=opus|sonnet|haiku|fable|<id>] [--effort=low|medium|high|xhigh|max] [ask]`
-
-**Features:**
 
 - **Findings by category**, the same categories as the bar. Press a category to show only its findings; press a
   finding to see what was measured and why it matters. **⟳ rescan** measures again; **✕ close** (or Escape) closes
@@ -139,7 +137,7 @@ agents or memory files; or when auto-compact keeps arriving sooner than you expe
 
 <img src="context-bar/docs/images/context-doctor.png" alt="The context doctor: findings by category, a memory file finding open, and the ask AI button with its cost" width="497">
 
-**Checks** (free, run locally):
+It checks, for free and locally:
 
 | Category | Flags | Severity |
 |---|---|---|
