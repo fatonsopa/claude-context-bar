@@ -6,7 +6,7 @@ tokens loaded on every request.
 
 ![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](docs/images/bar.png)
 
-Version `0.18.0` · [changelog](CHANGELOG.md)
+Version `0.18.1` · [changelog](CHANGELOG.md)
 
 ## Contents
 
@@ -43,16 +43,18 @@ light and dark backgrounds, and every other colour is a Claude Code theme key th
 | Claude Code Desktop, `Code` tab | Renders above the prompt. The colour strip is clickable. |
 | VS Code extension | `/context-bar` opens the bar as a pane. |
 | Claude mobile app | `/context-bar` opens the bar as a pane. |
-| `claude.ai/code` in a browser | See below. |
+| `claude.ai/code` in a browser | Not drawn. The browser view draws no plugin UI. |
+| claude.ai chat and Cowork | Not available. Neither loads mods. |
 
-Claude Code `2.1.292` defines four plugin render surfaces: `terminal`, `desktop`, `vscode` and `mobile`. A browser
-session at `claude.ai/code` is one of two kinds:
-
-- **Remote Control session**: the session runs on the local machine and the plugin runs there. Its hooks apply to
-  prompts and compactions started from the browser. Run `/context-bar status` and read `Drawn on:` to list the
-  surfaces that draw the bar.
-- **Cloud session**: the session runs on Anthropic's infrastructure. It loads no locally installed plugins. Where
-  `/cloud-plugins` is available, run it on the machine that starts the cloud session to send its enabled plugins.
+- **Remote Control session viewed at `claude.ai/code`**: the session and the plugin run on the local machine. Its
+  hooks apply to prompts and compactions sent from the browser. The bar renders in the terminal or Desktop app that
+  runs the session.
+- **Cloud session**: loads no locally installed plugins. Where `/cloud-plugins` is available, run it on the machine
+  that starts the cloud session to send its enabled plugins.
+- **claude.ai chat and Cowork**: the bar is a mod (`modules` in `hooks/hooks.json`). Chat and Cowork do not load mods,
+  chat ignores hooks, and no plugin component there can read context usage. See
+  [Plugin feature support across platforms](https://claude.com/docs/plugins/platform-support). A plugin installed on
+  a claude.ai account under `Customize` → `Plugins` syncs to Claude Code at the next session start.
 
 ## Install
 

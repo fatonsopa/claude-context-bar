@@ -412,6 +412,16 @@ export function statusText(a: {
   ].join('\n')
 }
 
+/**
+ * The reply to a bare `/context-bar`. Typed through Remote Control (`bridge`: a phone or the claude.ai browser view),
+ * it says where the bar is drawn, since the claude.ai browser view draws no plugin UI.
+ */
+export function shownText(isPane: boolean, isBridge: boolean): string {
+  if (!isBridge) return isPane ? 'Context bar opened as a pane.' : 'Context bar shown above the prompt.'
+  const where = isPane ? 'opened as a pane in the Claude mobile app or VS Code' : 'shown above the prompt in the terminal or Claude Code Desktop'
+  return `Context bar ${where}. The claude.ai browser view draws no plugin UI.`
+}
+
 export const RESUME_TOAST = 'Press Enter to send. Claude reads the handoff and continues.'
 
 /** "Continue": the handoff's own resume routine, then a short check-in before any new work. */

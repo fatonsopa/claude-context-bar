@@ -214,3 +214,14 @@ test('/context-bar update on a --plugin-dir checkout says to git pull it', async
   const updated = await $.command.run(run('update'))
   expect(updated.text).toMatch(/a --plugin-dir checkout: git pull it to update\.$/)
 })
+
+test('/context-bar typed through Remote Control says the claude.ai browser view draws no plugin UI', async ($, on) => {
+  on('session.usage', () => ({ value: USAGE }))
+  on('session.cwd', () => ({ value: '/tmp' }))
+  engine(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  expect((await $.command.run(run(''))).text).toBe('Context bar shown above the prompt.')
+  const fromBridge = await $.command.run({ ...run(''), origin: { kind: 'bridge' } })
+  expect(fromBridge.text).toBe('Context bar shown above the prompt in the terminal or Claude Code Desktop. The claude.ai browser view draws no plugin UI.')
+})

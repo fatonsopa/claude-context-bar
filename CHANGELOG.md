@@ -5,6 +5,15 @@ All notable changes to context-bar. The format follows
 
 ## context-bar
 
+### [0.18.1] — 2026-10-07
+
+#### Fixed
+- `/context-bar` typed through Remote Control no longer says the bar is shown above the prompt: it names where the
+  bar is drawn and says the claude.ai browser view draws no plugin UI.
+
+#### Changed
+- README Surfaces: the claude.ai browser view draws no plugin UI; claude.ai chat and Cowork do not load mods.
+
 ### [0.18.0] — 2026-10-07
 
 #### Added

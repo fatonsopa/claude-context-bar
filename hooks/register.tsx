@@ -37,7 +37,7 @@ import { noticeLine } from './noticeView'
 import { toLimits } from './limits'
 import { compactLine } from './compactView'
 
-import { offersHandoff, settingsFrom, statusText } from './compact'
+import { offersHandoff, settingsFrom, shownText, statusText } from './compact'
 import { VERSION } from './version'
 import { asHandoffRun, asStoredHandoff, createCompactFlow, handoffKey, handoffRunKey } from './compactFlow'
 import { errorText } from './errors'
@@ -801,7 +801,7 @@ export const register: Register = (on, options) => {
     const needsPane = arg === 'pane' || surfaces.some(s => s === 'vscode' || s === 'mobile')
     if (needsPane) await $.ui.open({ id: PANE, title: 'Context' })
     void refresh()
-    return { text: needsPane ? 'Context bar opened.' : 'Context bar shown above the prompt.' }
+    return { text: shownText(needsPane, e.origin.kind === 'bridge') }
   })
 
   on('command.run', { command: 'context-doctor' }, async ($, e) => {
