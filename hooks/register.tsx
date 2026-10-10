@@ -37,7 +37,7 @@ import { noticeLine } from './noticeView'
 import { toLimits } from './limits'
 import { compactLine } from './compactView'
 
-import { offersHandoff, settingsFrom, shownText, statusText } from './compact'
+import { autoCompactPlan, offersHandoff, settingsFrom, shownText, statusText } from './compact'
 import { VERSION } from './version'
 import { asHandoffRun, asStoredHandoff, createCompactFlow, handoffKey, handoffRunKey } from './compactFlow'
 import { errorText } from './errors'
@@ -128,6 +128,8 @@ type Ops = {
   writeFile: (path: string, text: string) => Promise<void>
   exists: (path: string) => Promise<boolean>
   cwd: () => Promise<string>
+  /** CLAUDE_AUTOCOMPACT_PCT_OVERRIDE as this process has it now. */
+  autoCompactPct: () => Promise<string | undefined>
 }
 
 type Scanned = ScanInput & { findings: Finding[] }
@@ -235,7 +237,11 @@ export const register: Register = (on, options) => {
           commands = await o.commands().catch((): CommandInfo[] => commands)
           commandsAt = now
         }
-        const [usage, tools] = await Promise.all([o.usage(detail), o.tools().catch((): ToolInfo[] => [])])
+        const [usage, tools, autoCompactPct] = await Promise.all([
+          o.usage(detail),
+          o.tools().catch((): ToolInfo[] => []),
+          o.autoCompactPct().catch((): string | undefined => undefined),
+        ])
         const b = usage.context.breakdown
         if (b) {
           lastBreakdown = b
@@ -248,6 +254,7 @@ export const register: Register = (on, options) => {
               cost: usage.cost?.usd ?? null,
               fileSections: bySection,
               commands,
+              autoCompactPct,
             }),
           )
         }
@@ -316,7 +323,7 @@ export const register: Register = (on, options) => {
           at: now,
           total: b.totalTokens,
           max: b.rawMaxTokens,
-          threshold: b.isAutoCompactEnabled ? (b.autoCompactThreshold ?? null) : null,
+          threshold: snap.threshold,
           findings: prev?.audit ? fillRefs(ordered) : withRefs(ordered),
           aiInputTokens: estimate(audit.system + audit.prompt),
           runs: prev?.runs ?? [],
@@ -547,7 +554,10 @@ export const register: Register = (on, options) => {
   }
 
   // the person's settings (/config); nothing here is specific to a project
-  const flow = createCompactFlow(settingsFrom(options))
+  const settings = settingsFrom(options)
+  const flow = createCompactFlow(settings)
+  /** Where Claude Code compacts on its own and who set it, for /context-bar status. */
+  let autoCompactNote: string | null = null
 
   // ---------------------------------------------------------------- hooks
 
@@ -582,6 +592,23 @@ export const register: Register = (on, options) => {
       writeFile: (path, text) => $.fs.write(path, text),
       exists: path => $.fs.exists(path),
       cwd: () => $.session.cwd(),
+      autoCompactPct: () => $.env.get('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE'),
+    }
+    // The auto-compact fallback: Claude Code's own variable, read by it at every check, so setting it here takes
+    // effect in this session. CONTEXT_BAR_AUTOCOMPACT_PCT marks the value as the bar's own, in this process and in a
+    // `claude` started from its shell; a value without that mark was set by the person and is kept. Never blocks the start.
+    try {
+      const plan = autoCompactPlan({
+        current: await $.env.get('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE'),
+        owned: (await $.env.get('CONTEXT_BAR_AUTOCOMPACT_PCT')) ?? null,
+        percent: settings.autoCompactAtPercent,
+      })
+      if (plan.action === 'set') await $.env.set('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', plan.value)
+      if (plan.action === 'unset') await $.env.set('CLAUDE_AUTOCOMPACT_PCT_OVERRIDE', undefined)
+      await $.env.set('CONTEXT_BAR_AUTOCOMPACT_PCT', plan.owned ?? undefined)
+      autoCompactNote = plan.note
+    } catch (err) {
+      autoCompactNote = `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE could not be set: ${errorText(err)}`
     }
     flow.setOps({
       agents: () => $.agent.list(),
@@ -675,8 +702,8 @@ export const register: Register = (on, options) => {
     markDirty()
     // a background task ended: the compaction flow stops counting it as running
     if (e.origin.kind === 'task-notification') await flow.onTaskNotification(e.text).catch(() => {})
-    // the person moved on: a suggestion for the moment that just passed goes away
-    if (e.origin.kind === 'composer' || e.origin.kind === 'bridge') await flow.onPersonPrompt().catch(() => {})
+    // the person moved on: the offer to continue goes away; a new topic after finished work is a moment
+    if (e.origin.kind === 'composer' || e.origin.kind === 'bridge') await flow.onPersonPrompt(e.text).catch(() => {})
     return r
   }).catch(($, e, next) => next(e)) // a failure here never blocks the prompt or the tool call
 
@@ -692,6 +719,8 @@ export const register: Register = (on, options) => {
       command?: unknown
       agentId?: unknown
       tool_use_id?: unknown
+      task_id?: unknown
+      shell_id?: unknown
     }
     const tool = typeof call.tool === 'string' ? call.tool : null
     if (!tool) return r
@@ -706,6 +735,24 @@ export const register: Register = (on, options) => {
     }))
     return r
   }).catch(($, e, next) => next(e)) // a failure here never blocks the prompt or the tool call
+
+  // After a commit or a push of the main conversation at a good moment: Claude reads one note, and ends its reply with
+  // "✅ Task done — good point to /compact" when the task is finished. The hook's additional context is the engine's
+  // own way to hand the model text with a tool result.
+  on('classic.PostToolUse', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agent_id !== undefined) return r
+    const note = await flow.taskDoneContext(e.tool_name, e.tool_input, e.tool_response)
+    return note ? { ...r, additionalContext: [...(r.additionalContext ?? []), note] } : r
+  }).catch(($, e, next) => next(e))
+
+  // The end of a main-conversation turn: Claude Code's own list of background work still in flight decides what the
+  // bar counts as running (a stopped command sends no notification of its end).
+  on('classic.Stop', async ($, e, next) => {
+    const r = await next(e)
+    if (e.agent_id === undefined) await flow.onStop(e.background_tasks).catch(() => {})
+    return r
+  }).catch(($, e, next) => next(e))
 
   on('turn.start', async ($, e, next) => {
     if ((e as { agentId?: unknown }).agentId === undefined) flow.onTurnStart()
@@ -790,6 +837,7 @@ export const register: Register = (on, options) => {
             openTasks: await flow.openTaskCount(),
             now,
             version: VERSION,
+            ...(autoCompactNote ? { autoCompact: autoCompactNote } : {}),
           }),
           updateStatus({ root: $.plugin.root, version: VERSION, isAutomatic, state: asUpdateState(await $.store.get(UPDATE_KEY)), now }),
           `Drawn on: ${surfaces.length ? surfaces.join(', ') : 'no surface (a -p run)'}`,

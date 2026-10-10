@@ -151,11 +151,19 @@ export type Seen = {
 
 /** A suggestion the bar shows: compact after a finished step, or continue from a handoff in a new session. */
 export type CompactTip = {
-  /** `saved`: a commit landed · `pushed`: a git push went out · `finished`: a long skill run ended · `resume`: a new session with a recent handoff */
-  reason: 'saved' | 'pushed' | 'finished' | 'resume'
+  /**
+   * `saved`: a commit landed · `pushed`: a git push went out · `finished`: a long skill run ended · `done`: Claude said
+   * the committed task is done · `agent`: a subagent finished · `output`: a turn that read a long tool output ended ·
+   * `topic`: the person moved to a new topic after finished work · `level`: a turn ended with the context past a new
+   * 10% step · `resume`: a new session with a recent handoff
+   */
+  reason: 'saved' | 'pushed' | 'finished' | 'done' | 'agent' | 'output' | 'topic' | 'level' | 'resume'
   /** When the step finished, or when the notes were written (`resume`). */
   at: number
-  /** What finished: the commit's subject, the pushed refs (`dev -> dev`) or the skill's name; null when unknown. */
+  /**
+   * What finished: the commit's subject, the pushed refs (`dev -> dev`), the skill's name, the subagent's description,
+   * or the 10% step the context passed (`level`: `"60"`); null when unknown.
+   */
   what: string | null
   /** For `resume`: the handoff file to read. */
   handoff: string | null

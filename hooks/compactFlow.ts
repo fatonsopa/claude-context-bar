@@ -59,6 +59,12 @@ import {
   summaryText,
   testsFailed,
   withKeepList,
+  stoppedTask,
+  inFlightIds,
+  isNewTopic,
+  levelBand,
+  saysTaskDone,
+  taskDoneNote,
 } from './compact'
 import type { BarSettings, Busy, MachineState } from './compact'
 import { errorText } from './errors'
@@ -123,6 +129,15 @@ function firstLine(text: string): string {
   return text.split('\n').map(l => l.trim()).find(Boolean) ?? ''
 }
 
+/** A moment the bar may suggest compacting at (every CompactTip reason but `resume`). */
+type Moment = Exclude<CompactTip['reason'], 'resume'>
+
+/** Finished units of work: a new topic right after one is a good moment too. */
+const UNIT_MOMENTS: readonly Moment[] = ['saved', 'pushed', 'finished', 'done', 'agent']
+
+const isActive = (status: string): boolean => status === 'pending' || status === 'running' || status === 'waiting'
+const isEnded = (status: string): boolean => status === 'completed' || status === 'failed' || status === 'killed'
+
 /** The last handoff for one project, kept in the plugin's store so a new session can find it. */
 type StoredHandoff = { path: string; at: number }
 export const handoffKey = (root: string) => `handoff:${projectSlug(root)}`
@@ -156,7 +171,25 @@ export function createCompactFlow(settings: BarSettings) {
   /** Background commands this session started and has not heard the end of: task id → the call that started it. */
   const shells = new Map<string, string | null>()
   /** A moment that came while something was still running: offered as soon as nothing is. */
-  let deferred: { reason: 'saved' | 'pushed' | 'finished'; what: string | null; to: string | null } | null = null
+  let deferred: { reason: Moment; what: string | null; to: string | null; anySize: boolean } | null = null
+  /** The main conversation's subagents seen running, by id, with their description: one that ended is a moment. */
+  const agentsRunning = new Map<string, string>()
+  // what the running turn did, read when it ends
+  /** The biggest tool output the turn read, in tokens, when it was a long one; 0 when none was. */
+  let turnLongOutput = 0
+  /** The last commit the turn made, for the task-done moment. */
+  let turnCommit: string | null = null
+  /** A moment came during the turn (a commit, a push, a subagent, a new topic): the turn's end adds none of its own. */
+  let turnHadMoment = false
+  /** Claude was told about the task-done line this turn: once per turn is enough. */
+  let toldThisTurn = false
+  /** The 10% step of the context last suggested at, so each step is suggested once; reset by a compaction. */
+  let lastLevel: number | null = null
+  /** A unit of work finished since the person's last message, and what it was: a new topic now is a good moment. */
+  let unitFinished = false
+  let unitWhat: string[] = []
+  /** The person's last messages, to tell a new topic from more of the same. */
+  let recentPrompts: string[] = []
 
   async function repoOf(t: CompactOps): Promise<{ root: string; gitDir: string; main: string } | null> {
     if (repo !== undefined) return repo
@@ -176,24 +209,60 @@ export function createCompactFlow(settings: BarSettings) {
   /** Subagents of this session that have not finished, as the engine lists them. */
   async function countSubagents(t: CompactOps): Promise<number> {
     try {
-      return (await t.agents()).filter(a => a.status === 'pending' || a.status === 'running' || a.status === 'waiting').length
+      return (await t.agents()).filter(a => isActive(a.status)).length
     } catch {
       return busy.subagents
     }
   }
 
-  /** Every 12 s: are subagents still running, is a merge or rebase under way; then offer a moment that was waiting. */
+  /**
+   * Every 12 s: are subagents still running, is a merge or rebase under way; a subagent of the main conversation that
+   * ended since the last look is a moment; then offer a moment that was waiting.
+   */
   async function checkWork(): Promise<void> {
     const t = compactOps
     if (!t) return
     const r = await repoOf(t)
-    const [subagents, merging] = await Promise.all([
-      countSubagents(t),
+    const [agents, merging] = await Promise.all([
+      t.agents().catch((): AgentInfo[] | null => null),
       r
         ? Promise.all(['rebase-merge', 'rebase-apply', 'MERGE_HEAD'].map(f => t.exists(`${r.gitDir}/${f}`))).then(x => x.some(Boolean))
         : Promise.resolve(false),
     ])
-    busy = { ...busy, subagents, merging }
+    const ended: string[] = []
+    if (agents) {
+      for (const a of agents) {
+        if (a.parentId !== undefined) continue
+        if (isActive(a.status)) agentsRunning.set(a.id, a.description)
+        else if (isEnded(a.status) && agentsRunning.has(a.id)) {
+          ended.push(a.description)
+          agentsRunning.delete(a.id)
+        }
+      }
+      // one the engine no longer lists has ended too
+      for (const [id, description] of agentsRunning) {
+        if (!agents.some(a => a.id === id)) {
+          ended.push(description)
+          agentsRunning.delete(id)
+        }
+      }
+    }
+    busy = { ...busy, subagents: agents ? agents.filter(a => isActive(a.status)).length : busy.subagents, merging }
+    const last = ended[ended.length - 1]
+    if (last !== undefined) await suggest('agent', last || null)
+    await offerDeferred()
+  }
+
+  /**
+   * A turn of the main conversation ended: Claude Code's own list of the background work still in flight (the Stop
+   * hook's `background_tasks`) is the truth, so a command the bar still counts but the list does not hold has ended,
+   * whether or not its notification came.
+   */
+  async function onStop(backgroundTasks: unknown): Promise<void> {
+    const live = inFlightIds(backgroundTasks)
+    if (!live) return
+    for (const id of [...shells.keys()]) if (!live.has(id)) shells.delete(id)
+    busy = { ...busy, shells: shells.size }
     await offerDeferred()
   }
 
@@ -202,7 +271,7 @@ export function createCompactFlow(settings: BarSettings) {
     if (!deferred || busyReason(busy)) return
     const d = deferred
     deferred = null
-    await suggest(d.reason, d.what, d.to)
+    await suggest(d.reason, d.what, d.to, d.anySize)
   }
 
   /** A background task's notification arrived: if it is one of this session's commands and it ended, it no longer counts. */
@@ -216,18 +285,68 @@ export function createCompactFlow(settings: BarSettings) {
     await offerDeferred()
   }
 
-  async function suggest(reason: 'saved' | 'pushed' | 'finished', what: string | null, to: string | null = null): Promise<void> {
+  /**
+   * One moment: shown unless something still runs (then it waits, the newest moment replacing an older waiting one),
+   * the conversation is too small to be worth it, or a compaction just happened. A newer moment replaces the shown one.
+   * `anySize`: the moment carries its own measure of size (a context step, Claude's task-done line), so the
+   * conversation's own size does not hold it back.
+   */
+  async function suggest(reason: Moment, what: string | null, to: string | null = null, anySize = false): Promise<void> {
     const t = compactOps
     if (!t) return
+    if (turnRunning) turnHadMoment = true
+    if (UNIT_MOMENTS.includes(reason)) {
+      unitFinished = true
+      if (what) unitWhat = [...unitWhat, what].slice(-5)
+    }
     busy = { ...busy, subagents: await countSubagents(t) }
     if (busyReason(busy)) {
-      deferred = { reason, what, to }
+      deferred = { reason, what, to, anySize }
       return
     }
+    // this moment is newer than any that waited: the older one is not offered after it
+    deferred = null
     const now = await t.now()
-    const minConversation = settings.suggestCompactAtTokens
+    const minConversation = anySize ? 0 : settings.suggestCompactAtTokens
     if (!shouldSuggest({ snap: await t.snapshot(), busy, lastCompactAt, now, minConversation })) return
     await t.setTip({ reason, at: now, what, handoff: null, ...(to ? { to } : {}) })
+  }
+
+  /**
+   * The end of a turn is a clean boundary: when the context passed a new 10% step from the setting's level (50, 60,
+   * 70 ...), that is a moment, each step once. `show` false: the turn already had a moment of its own, so the step is
+   * only counted, not shown.
+   */
+  async function levelMoment(t: CompactOps, show: boolean): Promise<void> {
+    const snap = await t.snapshot()
+    if (!snap) return
+    const band = levelBand(snap.percent, settings.suggestCompactAtPercent)
+    if (band === null) {
+      lastLevel = null
+      return
+    }
+    if (lastLevel !== null && band <= lastLevel) return
+    lastLevel = band
+    if (show) await suggest('level', String(band), null, true)
+  }
+
+  /**
+   * Right after a commit or a push of the main conversation (the PostToolUse hook): when it lands at a good moment,
+   * the note Claude reads, so it ends its reply with the task-done line if the task is finished. Once per turn.
+   */
+  async function taskDoneContext(tool: string, input: unknown, response: unknown): Promise<string | null> {
+    const t = compactOps
+    if (!t || toldThisTurn || pendingHandoff || tool !== 'Bash') return null
+    const command = (input as { command?: unknown } | null)?.command
+    if (typeof command !== 'string') return null
+    const out = outputOf({ result: response })
+    const kind = committed(command, out) ? 'commit' : pushed(command, out) ? 'push' : null
+    if (!kind) return null
+    busy = { ...busy, subagents: await countSubagents(t) }
+    const now = await t.now()
+    if (!shouldSuggest({ snap: await t.snapshot(), busy, lastCompactAt, now, minConversation: settings.suggestCompactAtTokens })) return null
+    toldThisTurn = true
+    return taskDoneNote(kind)
   }
 
   /**
@@ -262,7 +381,7 @@ export function createCompactFlow(settings: BarSettings) {
   /** After each main-conversation tool call: a skill used, a test run, a commit, a push, a very long answer. */
   async function afterTool(
     tool: string,
-    call: { command?: unknown; skill?: unknown; tool_use_id?: unknown },
+    call: { command?: unknown; skill?: unknown; tool_use_id?: unknown; task_id?: unknown; shell_id?: unknown },
     r: unknown,
   ): Promise<void> {
     const t = compactOps
@@ -270,22 +389,32 @@ export function createCompactFlow(settings: BarSettings) {
     // the task list, exactly: every task made or changed, so a handoff can carry the open ones
     if (TASK_TOOLS.includes(tool)) await t.setTasks(nextTasks(await t.getTasks(), tool, call, (r as { result?: unknown } | null)?.result))
     const out = outputOf(r)
+    const isError = (r as { isError?: unknown } | null)?.isError === true
     const background = backgroundTaskOf(r)
     if (background) {
       shells.set(background, typeof call.tool_use_id === 'string' ? call.tool_use_id : null)
       busy = { ...busy, shells: shells.size }
     }
+    // a stopped command sends no notification: the stop itself is its end
+    const stopped = stoppedTask(tool, call, isError)
+    if (stopped && shells.delete(stopped)) {
+      busy = { ...busy, shells: shells.size }
+      await offerDeferred()
+    }
     if (tool === 'Skill' && typeof call.skill === 'string') turnSkills.push(call.skill)
     if (tool === 'Bash' && typeof call.command === 'string') {
-      const isError = (r as { isError?: unknown } | null)?.isError === true
       if (isTestRun(call.command)) busy = { ...busy, testsFailing: testsFailed(isError, out) }
       const c = isError ? null : committed(call.command, out)
-      if (c) await suggest('saved', c.subject)
+      if (c) {
+        turnCommit = c.subject
+        await suggest('saved', c.subject)
+      }
       const p = isError ? null : pushed(call.command, out)
       if (p) await suggest('pushed', p, pushedTo(out) ?? (await pushHost(t, call.command)))
     }
     const tokens = estimate(out)
     if (isLargeOutput(tool, tokens, settings.longOutputTokens)) {
+      turnLongOutput = Math.max(turnLongOutput, tokens)
       const now = await t.now()
       if (now - lastLargeTipAt >= QUIET_LARGE_OUTPUT_MS) {
         lastLargeTipAt = now
@@ -357,6 +486,7 @@ export function createCompactFlow(settings: BarSettings) {
     saved?: string,
   ): Promise<string | null> {
     lastCompactAt = await t.now()
+    lastLevel = null
     await t.setTip(null)
     const handoff = await writeCompactHandoff(t, state, summaryText(r.messages))
     const shown = saved ?? handoff
@@ -612,11 +742,18 @@ export function createCompactFlow(settings: BarSettings) {
    * shrinks the context, or a newer moment replaces it. Only the offer to continue from the last handoff goes, since
    * typing something else means they started on other work.
    */
-  async function onPersonPrompt(): Promise<void> {
+  async function onPersonPrompt(text = ''): Promise<void> {
     const t = compactOps
     if (!t) return
     await t.setResult(null)
     if ((await t.getTip())?.reason === 'resume') await t.setTip(null)
+    // a new topic right after finished work: shown when this first turn on it ends (the bar shows no suggestion mid-turn)
+    const before = [...recentPrompts, ...unitWhat]
+    const finished = unitFinished
+    unitFinished = false
+    unitWhat = []
+    if (text.trim()) recentPrompts = [...recentPrompts, text].slice(-3)
+    if (finished && isNewTopic(text, before)) await suggest('topic', null)
   }
 
   /** Before any compaction (typed, automatic or another plugin's): the keep list, and a warning if now is a bad moment. */
@@ -657,6 +794,8 @@ export function createCompactFlow(settings: BarSettings) {
     buttons: compactOn,
     checkWork,
     afterTool,
+    onStop,
+    taskDoneContext,
     onTaskNotification,
     onPersonPrompt,
     /** `/context-bar handoff`: the same flow as the button, at any time. */
@@ -670,18 +809,47 @@ export function createCompactFlow(settings: BarSettings) {
     onTurnStart: () => {
       turnRunning = true
       turnSkills = []
+      turnLongOutput = 0
+      turnCommit = null
+      turnHadMoment = false
+      toldThisTurn = false
     },
-    /** The handoff turn ends in step 2; any other long turn that used a skill is a finished piece of work. */
+    /**
+     * The handoff turn ends in step 2. Any other turn's end is a clean boundary, and the moment it brings, strongest
+     * first: Claude said the task is done; a long skill run ended; a long tool output was read and is no longer needed;
+     * the context passed a new 10% step. One per turn, and none when the turn already had one (a commit, a push).
+     */
     onTurnComplete: async (answer: string, isAborted: boolean, durationMs: number) => {
       turnRunning = false
       const skills = turnSkills
+      const longOutput = turnLongOutput
+      const commit = turnCommit
+      const hadMoment = turnHadMoment
       turnSkills = []
+      turnLongOutput = 0
+      turnCommit = null
+      turnHadMoment = false
+      toldThisTurn = false
       if (pendingHandoff) {
         await finishHandoff(answer, isAborted).catch(() => {})
         return
       }
+      const t = compactOps
+      if (isAborted || !t) return
       const last = skills[skills.length - 1]
-      if (!isAborted && last && durationMs >= settings.longSkillRunMinutes * 60_000) await suggest('finished', last).catch(() => {})
+      try {
+        if (saysTaskDone(answer)) await suggest('done', commit, null, true)
+        else if (last && durationMs >= settings.longSkillRunMinutes * 60_000) await suggest('finished', last)
+        else if (longOutput > 0 && !hadMoment) await suggest('output', null)
+        else {
+          await levelMoment(t, !hadMoment)
+          return
+        }
+        // the step is counted with the moment the turn did show, so the next turn does not repeat it
+        await levelMoment(t, false)
+      } catch {
+        // a moment never disturbs the session
+      }
     },
   }
 }

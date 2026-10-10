@@ -5,6 +5,7 @@ import type { CommandInfo, ContextBreakdownDetail, PromptComposeSection, Session
 
 import type { Detail, Item, Limit, Row, Snapshot } from '../types'
 import { catOf, colorOf, estimate, labelOf, shortPath } from './categories'
+import { effectiveThreshold } from './compact'
 
 export function byTokens(items: Item[]): Item[] {
   return [...items].sort((a, b) => b.tokens - a.tokens)
@@ -20,6 +21,8 @@ export type SnapshotExtras = {
   fileSections?: { [path: string]: Item[] }
   /** The commands list, whose one-line descriptions preview the skills. */
   commands?: readonly CommandInfo[]
+  /** CLAUDE_AUTOCOMPACT_PCT_OVERRIDE as this process has it: it lowers where auto-compaction runs. */
+  autoCompactPct?: string
 }
 
 const PREVIEW_CHARS = 320
@@ -168,7 +171,7 @@ export function buildSnapshot(
     total: b.totalTokens,
     max: b.rawMaxTokens,
     percent: b.percentage,
-    threshold: b.isAutoCompactEnabled ? (b.autoCompactThreshold ?? null) : null,
+    threshold: effectiveThreshold(b.isAutoCompactEnabled ? (b.autoCompactThreshold ?? null) : null, b.rawMaxTokens, more.autoCompactPct),
     rows,
     details,
     limits: more.limits ?? [],

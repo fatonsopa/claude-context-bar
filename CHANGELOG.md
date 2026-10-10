@@ -5,6 +5,30 @@ All notable changes to context-bar. The format follows
 
 ## context-bar
 
+### [0.19.0] — 2026-10-10
+
+#### Fixed
+- The bar went quiet for the rest of a session after a background command was stopped with `TaskStop`. A stopped
+  command gets no `<task-notification>`, so the bar kept counting it as running and held back every compaction prompt
+  as "1 background command is still running" (session of 7–9 Oct: pushes at 87.7%, 88.9%, 92.0%, 92.8% and 94.2% of
+  the context, none prompted). The bar now ends a command at its `TaskStop`, and at every turn's end takes Claude
+  Code's own list of background work in flight (`background_tasks`) as the truth.
+
+#### Added
+- Task done: after a commit or push of the main conversation at a good moment, Claude receives one note through the
+  `PostToolUse` hook's additional context. When the task is finished, Claude ends its reply with
+  `✅ Task done — good point to /compact`; the bar shows the same line and lights both handoff buttons.
+- Auto-compact fallback: option `auto_compact_at_percent` (default `80`) sets Claude Code's
+  `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` for the session, so Claude Code compacts at 80% of the window instead of about
+  97%. A value set outside the bar is kept; `0` keeps Claude Code's own threshold. The bar draws the lowered threshold.
+- Moments along the way: a subagent of the main conversation finished, a turn that read a long tool output ended, a
+  new topic after finished work, and a turn that ends past a new 10% context step from `suggest_compact_at_percent`
+  (default `50`). One line per moment; a newer moment replaces the older one.
+- `/context-bar status` prints the auto-compact threshold and who set it.
+
+#### Changed
+- The handoff path under a result is bold on hover, not underlined.
+
 ### [0.18.1] — 2026-10-07
 
 #### Fixed

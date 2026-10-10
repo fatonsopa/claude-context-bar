@@ -62,7 +62,7 @@ function messageLine(a: CompactArgs, line: string, i: number): RenderElement {
   return (
     <Box key={`compact-line-${i}`} flexDirection="row" flexWrap="wrap">
       {before ? <Text color={MESSAGE_FG}>{before}</Text> : null}
-      <Button key={`compact-open-${i}`} plain label={link} hover={{ color: MESSAGE_FG, underline: true }} onPress={() => a.on.open(link)} />
+      <Button key={`compact-open-${i}`} plain label={link} hover={{ color: MESSAGE_FG, bold: true }} onPress={() => a.on.open(link)} />
       {after ? <Text color={MESSAGE_FG}>{after}</Text> : null}
     </Box>
   )

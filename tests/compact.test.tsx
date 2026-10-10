@@ -49,6 +49,15 @@ import {
   testsFailed,
   tipText,
   withKeepList,
+  TASK_DONE_LINE,
+  autoCompactPlan,
+  effectiveThreshold,
+  inFlightIds,
+  isNewTopic,
+  levelBand,
+  saysTaskDone,
+  stoppedTask,
+  taskDoneNote,
 } from '../hooks/compact'
 import { buildSnapshot } from '../hooks/snapshot'
 import { BUTTON_COLOR, SQUARE, SUGGESTED_SQUARE } from '../hooks/barView'
@@ -105,6 +114,10 @@ type World = {
   holdCompact: Promise<void> | null
   /** Files already in the handoff folder, as `fs.list` names them. */
   listing: string[]
+  /** The process environment the mod reads and writes (`env.get` / `env.set`). */
+  env: Record<string, string | undefined>
+  /** What the session's usage answers now; a test changes it, then measures again. */
+  usage: SessionUsage
   clock: ReturnType<typeof engine>
 }
 
@@ -123,6 +136,8 @@ function world(
     existingHandoff?: 'clean' | 'changed' | 'untracked'
     /** `git add` fails with this message on stderr. */
     addFails?: string
+    /** Variables already in the environment when the session starts. */
+    env?: Record<string, string>
   } = {},
 ): World {
   const w: Omit<World, 'clock'> = {
@@ -139,11 +154,17 @@ function world(
     commands: [],
     listing: [],
     holdCompact: null,
+    env: { HOME: '/home/me', ...(opts.env ?? {}) },
+    usage: opts.usage ?? LONG_USAGE,
   }
   const isDraft = (path: string) => /\/\.handoff-draft-\d{8}-\d{6}\.md$/.test(path)
-  on('session.usage', () => ({ value: opts.usage ?? LONG_USAGE }))
+  on('session.usage', () => ({ value: w.usage }))
   on('session.cwd', () => ({ value: '/proj' }))
-  on('env.get', ($, e) => ({ value: e.name === 'HOME' ? '/home/me' : undefined }))
+  on('env.get', ($, e) => ({ value: w.env[e.name] }))
+  on('env.set', ($, e) => {
+    w.env[e.name] = e.value
+    return { value: undefined }
+  })
   on('fs.exists', ($, e) => ({
     value: isDraft(e.path)
       ? w.draft.text !== null
@@ -227,6 +248,8 @@ function world(
   on('prompt.read', () => ({ value: { text: w.box.text, cursor: w.box.text.length } }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('classic.SessionStart', () => ({}))
+  on('classic.PostToolUse', () => ({}))
+  on('classic.Stop', () => ({}))
   on('session.compact', async ($, e) => {
     w.compacts.push({ instructions: e.instructions, trigger: e.trigger })
     if (w.holdCompact) await w.holdCompact
@@ -331,6 +354,11 @@ test('everything the person reads uses Claude Code\'s own words: compact, contex
     { reason: 'pushed', at: 0, what: 'dev -> dev', handoff: null },
     { reason: 'finished', at: 0, what: 'push-pipeline', handoff: null },
     { reason: 'resume', at: 0, what: null, handoff: '/home/me/.claude/handoffs/proj/x.md' },
+    { reason: 'done', at: 0, what: 'Add the export button', handoff: null },
+    { reason: 'agent', at: 0, what: 'run the tests', handoff: null },
+    { reason: 'output', at: 0, what: null, handoff: null },
+    { reason: 'topic', at: 0, what: null, handoff: null },
+    { reason: 'level', at: 0, what: '60', handoff: null },
   ]
   const texts = [
     ...tips.map(t => tipText(t, 30 * 60_000)),
@@ -342,6 +370,7 @@ test('everything the person reads uses Claude Code\'s own words: compact, contex
     handoffDoneText({ at: 0, path: '/proj/x-handoff.md', then: 'compact', commit: 'committed' }),
     handoffFailedText({ at: 0, reason: 'no handoff was written', then: 'clear' }),
     clearDoneText(0),
+    taskDoneNote('commit'),
   ]
   for (const t of texts) expect(INVENTED.test(t)).toBe(false)
   // what just finished, and nothing more: the marked button says which action fits, the bar how full the context is
@@ -352,7 +381,15 @@ test('everything the person reads uses Claude Code\'s own words: compact, contex
   // no age, however long it waits
   expect(tipText(tips[0] as CompactTip, 25 * 60_000)).toBe('✓ Changes committed')
   // a handoff is offered at hard ends only, not after every commit
-  expect(tips.map(t => offersHandoff(t))).toEqual([false, true, true, false])
+  expect(tips.map(t => offersHandoff(t))).toEqual([false, true, true, false, true, false, false, true, false])
+  // the moments along the way say what happened; the task-done line is the person's own words
+  expect(tips.slice(4).map(t => tipText(t, 0))).toEqual([
+    '✅ Task done — good point to /compact',
+    '✓ Subagent finished: run the tests',
+    '✓ Long output read',
+    '✓ New topic started',
+    '✓ Context passed 60%',
+  ])
   expect(doneText({ before: 400_000, after: 90_000, max: 1_000_000, at: 0, auto: false })).toBe(
     `Compact completed on ${when(0)}: context went from 40% to 9%.`,
   )
@@ -849,6 +886,16 @@ test('settings come from /config (the plugin\'s userConfig); anything missing or
   expect(settingsFrom({ handoff_folder: '../outside' }).handoffFolder).toBe('.claude/knowledge/handoffs')
   expect(settingsFrom({ handoff_folder: '/abs' }).handoffFolder).toBe('.claude/knowledge/handoffs')
   expect(settingsFrom({ suggest_compact_at_tokens: -1, long_output_tokens: 'lots' })).toEqual(DEFAULT_SETTINGS)
+  // the two context shares: suggestions from 50%, Claude Code's own compaction at 80%; 0 keeps Claude Code's threshold
+  expect(DEFAULT_SETTINGS.suggestCompactAtPercent).toBe(50)
+  expect(DEFAULT_SETTINGS.autoCompactAtPercent).toBe(80)
+  expect(settingsFrom({ suggest_compact_at_percent: 60, auto_compact_at_percent: 75 })).toEqual({
+    ...DEFAULT_SETTINGS,
+    suggestCompactAtPercent: 60,
+    autoCompactAtPercent: 75,
+  })
+  expect(settingsFrom({ auto_compact_at_percent: 0 }).autoCompactAtPercent).toBe(0)
+  expect(settingsFrom({ auto_compact_at_percent: 150, suggest_compact_at_percent: 0 })).toEqual(DEFAULT_SETTINGS)
 })
 
 test('git push output: what was sent is read from the "from -> to" line', () => {
@@ -971,7 +1018,8 @@ test('/context-bar status says what the flow sees: what runs, what waits, the la
       'Suggestion shown: none',
       'Last handoff: /home/me/.claude/handoffs/proj/20261006-170000-handoff.md, 1 min ago',
       'Open tasks the next handoff carries: 0',
-      'Settings: suggest at 80,000 tokens · long output 15,000 · long skill run 5 min · offer handoffs for 6 h',
+      'Settings: suggest at 80,000 tokens · from 50% of the context · long output 15,000 · long skill run 5 min · offer handoffs for 6 h',
+      'Auto-compact: 80% of the window (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80, set by context-bar)',
       'Handoffs go to: .claude/knowledge/handoffs in the repository, committed',
       'Updates: none for a --plugin-dir checkout (git pull it)',
       'Drawn on: terminal',
@@ -1438,5 +1486,330 @@ test('after "handoff & clear" the new conversation shows the result AND the Cont
   expect((await ui.find({ key: 'compact-text' }))?.text?.trim()).toMatch(/^↺ A handoff from your last session was saved .* — continue from it\?$/)
   await ui.press({ key: 'compact-resume' })
   expect(w.filled[0] ?? '').toBe(resumePrompt(SAVED))
+  await ui.unmount()
+})
+
+// ---------------------------------------------------------------- 0.19: why the bar went quiet, and the moments along the way
+
+/** A session whose context is at `percent` of a 1M window, the conversation making up most of it. */
+function usageAt(percent: number): SessionUsage {
+  const total = percent * 10_000
+  const messages = total - 90_300
+  const b: SessionContextBreakdown = {
+    ...BREAKDOWN,
+    categories: BREAKDOWN.categories.map(c =>
+      c.name === 'Messages' ? { ...c, tokens: messages } : c.name === 'Free space' ? { ...c, tokens: 1_000_000 - total - 13_000 } : c,
+    ),
+    totalTokens: total,
+    percentage: percent,
+    autoCompactThreshold: 967_000,
+  }
+  return { ...USAGE, context: { tokens: total, window: 1_000_000, percent, breakdown: b } }
+}
+
+/** One turn of the main conversation, as the engine raises its start, its tool calls and its end. */
+async function turn($: Parameters<TestBody>[0], id: string, calls: Record<string, unknown>[], answer = 'Done.') {
+  await $.turn.start({ text: `turn ${id}`, turnId: id })
+  for (const c of calls) await $.tool.call(c as never)
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  await $.turn.complete({ answer, durationMs: 60_000, isAborted: false, turnId: id, reason: 'answer' })
+}
+
+const tipNow = async (ui: { find: (q: { key: string }) => Promise<unknown> }) =>
+  (((await ui.find({ key: 'compact-text' })) as { text?: string } | undefined)?.text ?? '').trim() || null
+
+test('a stopped background task is read from the stop call; the engine\'s in-flight list is read by id', () => {
+  expect(stoppedTask('TaskStop', { task_id: 'bdokvqdhz' }, false)).toBe('bdokvqdhz')
+  expect(stoppedTask('KillShell', { shell_id: 'b2' }, false)).toBe('b2')
+  expect(stoppedTask('TaskStop', { task_id: 'b3' }, true)).toBeNull()
+  expect(stoppedTask('Bash', { task_id: 'b3' }, false)).toBeNull()
+  expect(inFlightIds([{ id: 'b1', type: 'shell', status: 'running', description: 'x' }])).toEqual(new Set(['b1']))
+  expect(inFlightIds([])).toEqual(new Set())
+  expect(inFlightIds(undefined)).toBeNull()
+})
+
+test(
+  'regression (10 Oct): a background command stopped with TaskStop no longer counts as running, so the commit after it is suggested',
+  async ($, on) => {
+    // 7-9 Oct, session 326c794b: bdokvqdhz was stopped with TaskStop at 17:18; no notification ever came for it, and every
+    // commit and push after it (at 87.7%, 88.9%, 92.0%, 92.8% and 94.2% of the context) was held back as "1 background
+    // command is still running". Across this project's sessions 57 of 57 stopped commands got no notification.
+    world(on, { bash: { 'npm run dev': { stdout: '', stderr: '', backgroundTaskId: 'bdokvqdhz' } } })
+    await $.session.start(START)
+    await $.session.measure(MEASURE)
+    await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true })
+    await $.tool.call({ tool: 'TaskStop', task_id: 'bdokvqdhz' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'git commit -m "Add the export button"' })
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await tipNow(ui)).toBe('✓ Changes committed')
+    expect((await $.command.run(run('status'))).text ?? '').toContain('Busy: nothing')
+    await ui.unmount()
+  },
+)
+
+test('at the end of each turn Claude Code\'s own list of background work decides what still runs; a waiting moment is then offered', async ($, on) => {
+  world(on, { bash: { 'npm run build': { stdout: '', stderr: '', backgroundTaskId: 'bg9' } } })
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m "Add the export button"' })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await tipNow(ui)).toBeNull()
+  // still in flight by the engine's own list: still waiting
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [{ id: 'bg9', type: 'shell', status: 'running', description: 'build' }] })
+  expect(await tipNow(ui)).toBeNull()
+  // gone from the list (ended, stopped, killed) though no notification came: the moment is offered
+  await $.classic.Stop({ stop_hook_active: false, background_tasks: [] })
+  expect(await tipNow(ui)).toBe('✓ Changes committed')
+  await ui.unmount()
+})
+
+// ---------------------------------------------------------------- telling Claude a task is done
+
+/** The PostToolUse hook's answer for a commit of the main conversation, as the engine raises it after the call. */
+const commitPost = (output = '[dev abc1234] Add the export button\n 2 files changed', agent?: string) => ({
+  tool_name: 'Bash',
+  tool_input: { command: 'git commit -m "Add the export button"' },
+  tool_response: { stdout: output, stderr: '', interrupted: false },
+  tool_use_id: 'toolu_c1',
+  ...(agent ? { agent_id: agent } : {}),
+})
+
+test('after a commit at a good moment Claude reads one note: end the reply with the task-done line when the task is finished', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  await $.turn.start({ text: 'add the export button', turnId: 't1' })
+  const first = await $.classic.PostToolUse(commitPost())
+  expect(first.additionalContext?.length).toBe(1)
+  expect(first.additionalContext?.[0]).toBe(taskDoneNote('commit'))
+  expect(first.additionalContext?.[0]).toContain(TASK_DONE_LINE)
+  expect(first.additionalContext?.[0]).toContain('If work on the task remains, leave the line out.')
+  // once per turn
+  expect((await $.classic.PostToolUse(commitPost())).additionalContext ?? []).toEqual([])
+  await $.turn.complete({ answer: 'Committed.', durationMs: 1000, isAborted: false, turnId: 't1', reason: 'answer' })
+  // the next turn gets it again; a command that is no commit or push, a failed commit and a subagent's commit get nothing
+  await $.turn.start({ text: 'next', turnId: 't2' })
+  expect((await $.classic.PostToolUse(commitPost('nothing to commit, working tree clean'))).additionalContext ?? []).toEqual([])
+  expect((await $.classic.PostToolUse(commitPost(undefined, 'agent-7'))).additionalContext ?? []).toEqual([])
+  expect(
+    (await $.classic.PostToolUse({ ...commitPost(), tool_input: { command: 'git status' } })).additionalContext ?? [],
+  ).toEqual([])
+  const push = await $.classic.PostToolUse({
+    ...commitPost(),
+    tool_input: { command: 'git push origin dev' },
+    tool_response: { stdout: '', stderr: 'To github.com:me/app.git\n   548e39a..abc1234  dev -> dev\n', interrupted: false },
+  })
+  expect(push.additionalContext?.[0]).toBe(taskDoneNote('push'))
+})
+
+test('no task-done note when it is no good moment: a short conversation, a subagent still running, failing tests', async ($, on) => {
+  const w = world(on, { usage: USAGE })
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  await $.turn.start({ text: 'x', turnId: 't1' })
+  expect((await $.classic.PostToolUse(commitPost())).additionalContext ?? []).toEqual([])
+  w.usage = LONG_USAGE
+  await $.session.measure(MEASURE)
+  w.agents = [{ id: 'a1', description: 'run the tests', type: 'general-purpose', status: 'running' }]
+  expect((await $.classic.PostToolUse(commitPost())).additionalContext ?? []).toEqual([])
+  w.agents = []
+  await $.tool.call({ tool: 'Bash', command: 'npx vitest run', ...{} } as never)
+  // the world answers a test run with nothing failed: the note comes
+  expect((await $.classic.PostToolUse(commitPost())).additionalContext?.length).toBe(1)
+})
+
+test('when Claude\'s reply ends with the task-done line, the bar shows the same line and lights both buttons', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await turn($, 't1', [{ tool: 'Bash', command: 'git commit -m "Add the export button"' }], `Committed abc1234.\n\n${TASK_DONE_LINE}`)
+  expect(await tipNow(ui)).toBe(TASK_DONE_LINE)
+  expect(await marked(ui, 'compact-anytime-box')).toBe(true)
+  expect(await marked(ui, 'clear-anytime-box')).toBe(true)
+  expect(saysTaskDone(`x\n${TASK_DONE_LINE}`)).toBe(true)
+  expect(saysTaskDone('Committed; more to do.')).toBe(false)
+  await ui.unmount()
+})
+
+// ---------------------------------------------------------------- the auto-compact fallback
+
+test('Claude Code\'s threshold is lowered the way it lowers it: floor(window × percent / 100), never raised', () => {
+  expect(effectiveThreshold(967_000, 1_000_000, '80')).toBe(800_000)
+  expect(effectiveThreshold(967_000, 1_000_000, '99')).toBe(967_000)
+  expect(effectiveThreshold(967_000, 1_000_000, undefined)).toBe(967_000)
+  expect(effectiveThreshold(967_000, 1_000_000, '0')).toBe(967_000)
+  expect(effectiveThreshold(967_000, 1_000_000, 'lots')).toBe(967_000)
+  expect(effectiveThreshold(null, 1_000_000, '80')).toBeNull()
+  // set, replaced when the setting changes, kept when someone else set it, removed when turned off
+  expect(autoCompactPlan({ current: undefined, owned: null, percent: 80 })).toMatchObject({ action: 'set', value: '80', owned: '80' })
+  expect(autoCompactPlan({ current: '80', owned: '80', percent: 70 })).toMatchObject({ action: 'set', value: '70', owned: '70' })
+  expect(autoCompactPlan({ current: '80', owned: '80', percent: 80 })).toMatchObject({ action: 'keep', owned: '80' })
+  expect(autoCompactPlan({ current: '65', owned: null, percent: 80 })).toMatchObject({ action: 'keep', owned: null })
+  expect(autoCompactPlan({ current: '65', owned: '80', percent: 80 }).note).toContain('set outside context-bar')
+  expect(autoCompactPlan({ current: '80', owned: '80', percent: 0 })).toMatchObject({ action: 'unset', owned: null })
+  expect(autoCompactPlan({ current: undefined, owned: null, percent: 0 })).toMatchObject({ action: 'keep', owned: null })
+})
+
+test('the session starts with Claude Code\'s auto-compact at 80% of the window, and the bar draws where it now runs', async ($, on) => {
+  const w = world(on)
+  await $.session.start(START)
+  expect(w.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe('80')
+  expect(w.env.CONTEXT_BAR_AUTOCOMPACT_PCT).toBe('80')
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /compacts at 800k/ })).toBeDefined()
+  expect((await $.command.run(run('status'))).text ?? '').toContain(
+    'Auto-compact: 80% of the window (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=80, set by context-bar)',
+  )
+  await ui.unmount()
+})
+
+test('a CLAUDE_AUTOCOMPACT_PCT_OVERRIDE the person set is kept', async ($, on) => {
+  const w = world(on, { env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '65' } })
+  await $.session.start(START)
+  expect(w.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe('65')
+  expect(w.env.CONTEXT_BAR_AUTOCOMPACT_PCT).toBeUndefined()
+  expect((await $.command.run(run('status'))).text ?? '').toContain('65% of the window (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=65, set outside context-bar)')
+})
+
+test('the bar\'s own value is marked, so a reload of the mod or a `claude` started from its shell treats it as the bar\'s', { options: { auto_compact_at_percent: 70 } }, async ($, on) => {
+  // what a nested `claude` inherits from a session whose bar set 80
+  const w = world(on, { env: { CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: '80', CONTEXT_BAR_AUTOCOMPACT_PCT: '80' } })
+  await $.session.start(START)
+  expect(w.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBe('70')
+  expect(w.env.CONTEXT_BAR_AUTOCOMPACT_PCT).toBe('70')
+  expect((await $.command.run(run('status'))).text ?? '').toContain('70% of the window (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70, set by context-bar)')
+})
+
+test('"Auto-compact at" 0 leaves Claude Code\'s own threshold', { options: { auto_compact_at_percent: 0 } }, async ($, on) => {
+  const w = world(on)
+  await $.session.start(START)
+  expect(w.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE).toBeUndefined()
+  expect((await $.command.run(run('status'))).text ?? '').toContain("Auto-compact: Claude Code's own threshold")
+})
+
+// ---------------------------------------------------------------- good moments along the way
+
+test('the context steps are counted from the setting: 50, 60, 70 ...', () => {
+  expect(levelBand(49.9, 50)).toBeNull()
+  expect(levelBand(50, 50)).toBe(50)
+  expect(levelBand(59, 50)).toBe(50)
+  expect(levelBand(63, 50)).toBe(60)
+  expect(levelBand(94, 50)).toBe(90)
+  expect(levelBand(66, 55)).toBe(65)
+})
+
+test('a turn that ends with the context past a new 10% step is a moment, each step once; a compaction starts the count again', async ($, on) => {
+  const w = world(on, { usage: usageAt(55) })
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await turn($, 't1', [])
+  expect(await tipNow(ui)).toBe('✓ Context passed 50%')
+  // a commit replaces it; the same step at the next turn's end adds nothing
+  await turn($, 't2', [{ tool: 'Bash', command: 'git commit -m "Add the export button"' }])
+  expect(await tipNow(ui)).toBe('✓ Changes committed')
+  await turn($, 't3', [])
+  expect(await tipNow(ui)).toBe('✓ Changes committed')
+  // the next step
+  w.usage = usageAt(63)
+  await $.session.measure(MEASURE)
+  await turn($, 't4', [])
+  expect(await tipNow(ui)).toBe('✓ Context passed 60%')
+  // at 87-95%, where the bar used to say nothing: every step still gets its moment
+  w.usage = usageAt(91)
+  await $.session.measure(MEASURE)
+  await turn($, 't5', [])
+  expect(await tipNow(ui)).toBe('✓ Context passed 90%')
+  await ui.unmount()
+})
+
+test('below the setting\'s share, a turn\'s end is no moment', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await turn($, 't1', [])
+  expect(await tipNow(ui)).toBeNull()
+  await ui.unmount()
+})
+
+test('a subagent of the main conversation that finished is a moment; while another still runs it waits', async ($, on) => {
+  const w = world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  w.agents = [
+    { id: 'a1', description: 'review the parser', type: 'general-purpose', status: 'running' },
+    { id: 'a2', description: 'run the tests', type: 'general-purpose', status: 'running' },
+  ]
+  await w.clock.advance(12_000)
+  w.agents = [
+    { id: 'a1', description: 'review the parser', type: 'general-purpose', status: 'completed' },
+    { id: 'a2', description: 'run the tests', type: 'general-purpose', status: 'running' },
+  ]
+  await w.clock.advance(12_000)
+  expect(await tipNow(ui)).toBeNull()
+  w.agents = [
+    { id: 'a1', description: 'review the parser', type: 'general-purpose', status: 'completed' },
+    { id: 'a2', description: 'run the tests', type: 'general-purpose', status: 'completed' },
+  ]
+  await w.clock.advance(12_000)
+  expect(await tipNow(ui)).toBe('✓ Subagent finished: run the tests')
+  // a subagent's own subagent is not the main conversation's moment
+  w.agents = [{ id: 'a3', description: 'nested', type: 'Explore', status: 'running', parentId: 'a2' }]
+  await w.clock.advance(12_000)
+  w.agents = [{ id: 'a3', description: 'nested', type: 'Explore', status: 'completed', parentId: 'a2' }]
+  await w.clock.advance(12_000)
+  expect(await tipNow(ui)).toBe('✓ Subagent finished: run the tests')
+  await ui.unmount()
+})
+
+test('a turn that read a long tool output is a moment when it ends: the output is no longer needed', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await turn($, 't1', [{ tool: 'Bash', command: 'cat big.log' }])
+  expect(await tipNow(ui)).toBe('✓ Long output read')
+  await ui.unmount()
+})
+
+test('a new topic right after finished work is a moment; more of the same work is not', async ($, on) => {
+  world(on)
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await $.prompt.submit({ text: 'add the export button to the invoices page', origin: { kind: 'composer' }, wait: false })
+  await turn($, 't1', [{ tool: 'Bash', command: 'git commit -m "Add the export button"' }])
+  expect(await tipNow(ui)).toBe('✓ Changes committed')
+  // more of the same
+  await $.prompt.submit({ text: 'make the export button on the invoices page smaller', origin: { kind: 'composer' }, wait: false })
+  await turn($, 't2', [{ tool: 'Bash', command: 'git commit -m "Add the export button"' }])
+  expect(await tipNow(ui)).toBe('✓ Changes committed')
+  // something else
+  await $.prompt.submit({ text: 'why does the nightly backup script fail on staging databases', origin: { kind: 'composer' }, wait: false })
+  await turn($, 't3', [])
+  expect(await tipNow(ui)).toBe('✓ New topic started')
+  expect(isNewTopic('ok', ['add the export button'])).toBe(false)
+  expect(isNewTopic('continue with the export button work please', ['add the export button'])).toBe(false)
+  await ui.unmount()
+})
+
+test('one suggestion per moment: no new one within 10 minutes of a compaction', async ($, on) => {
+  const w = world(on, { usage: usageAt(72) })
+  await $.session.start(START)
+  await $.session.measure(MEASURE)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await $.session.compact({ trigger: 'auto', messages: CONVERSATION })
+  await turn($, 't1', [])
+  expect(await tipNow(ui)).toBeNull()
+  await w.clock.advance(11 * 60_000)
+  w.usage = usageAt(81)
+  await $.session.measure(MEASURE)
+  await turn($, 't2', [])
+  expect(await tipNow(ui)).toBe('✓ Context passed 80%')
   await ui.unmount()
 })

@@ -32,6 +32,13 @@ export type BarSettings = {
   handoffFolder: string
   /** Commit that one file right after saving it, so an untracked file never blocks a push that wants a clean tree. */
   commitHandoffs: boolean
+  /** At the end of a turn with nothing running, suggest compacting once the context passes this share (%), and again at each 10% above it. */
+  suggestCompactAtPercent: number
+  /**
+   * Claude Code compacts on its own at this share of the window (%), through its CLAUDE_AUTOCOMPACT_PCT_OVERRIDE
+   * variable; 0 leaves Claude Code's own threshold (about 97% of a 1M window).
+   */
+  autoCompactAtPercent: number
 }
 
 export const DEFAULT_SETTINGS: BarSettings = {
@@ -41,6 +48,8 @@ export const DEFAULT_SETTINGS: BarSettings = {
   offerHandoffHours: 6,
   handoffFolder: '.claude/knowledge/handoffs',
   commitHandoffs: true,
+  suggestCompactAtPercent: 50,
+  autoCompactAtPercent: 80,
 }
 
 /** The manifest's `userConfig` keys for each setting. */
@@ -51,9 +60,11 @@ export const SETTING_KEYS: Readonly<Record<keyof BarSettings, string>> = {
   offerHandoffHours: 'offer_handoff_hours',
   handoffFolder: 'handoff_folder',
   commitHandoffs: 'commit_handoffs',
+  suggestCompactAtPercent: 'suggest_compact_at_percent',
+  autoCompactAtPercent: 'auto_compact_at_percent',
 }
 
-const NUMBER_SETTINGS = ['suggestCompactAtTokens', 'longOutputTokens', 'longSkillRunMinutes', 'offerHandoffHours'] as const
+const NUMBER_SETTINGS = ['suggestCompactAtTokens', 'longOutputTokens', 'longSkillRunMinutes', 'offerHandoffHours', 'suggestCompactAtPercent'] as const
 
 /** A folder inside the repository: relative, no `..`, no leading slash. */
 export function isRepoFolder(v: unknown): v is string {
@@ -71,7 +82,51 @@ export function settingsFrom(options: Readonly<Record<string, unknown>>): BarSet
   if (isRepoFolder(folder)) out.handoffFolder = folder.trim().replace(/\/+$/, '')
   const commit = options[SETTING_KEYS.commitHandoffs]
   if (typeof commit === 'boolean') out.commitHandoffs = commit
+  // 0 is a real choice here: Claude Code's own threshold
+  const auto = options[SETTING_KEYS.autoCompactAtPercent]
+  if (typeof auto === 'number' && Number.isFinite(auto) && auto >= 0 && auto <= 100) out.autoCompactAtPercent = Math.floor(auto)
   return out
+}
+
+// ---------------------------------------------------------------- Claude Code's own auto-compaction
+
+/** Claude Code's variable for the share of the window at which it compacts on its own (code.claude.com/docs/en/env-vars). */
+export const AUTO_COMPACT_VAR = 'CLAUDE_AUTOCOMPACT_PCT_OVERRIDE'
+
+/**
+ * Where auto-compaction really runs. Claude Code lowers its threshold to `floor(window × percent / 100)` when
+ * CLAUDE_AUTOCOMPACT_PCT_OVERRIDE is set, never above its own; the context breakdown reports the threshold without
+ * the variable, so the bar works it out the same way.
+ */
+export function effectiveThreshold(threshold: number | null, window: number, percent: string | undefined): number | null {
+  if (threshold === null) return null
+  const p = percent ? Number.parseFloat(percent) : Number.NaN
+  if (!Number.isFinite(p) || p <= 0 || p > 100) return threshold
+  return Math.min(threshold, Math.floor(window * (p / 100)))
+}
+
+/**
+ * What the bar does with CLAUDE_AUTOCOMPACT_PCT_OVERRIDE when the session starts or the setting changes. It sets the
+ * variable only when nobody else did: a value already there that the bar did not set is the person's, and is kept.
+ * `owned` is the value the bar marked as its own (CONTEXT_BAR_AUTOCOMPACT_PCT, which the process keeps across reloads
+ * of the mod and a `claude` started from its shell inherits), so a changed setting replaces only the bar's own value.
+ */
+export type AutoCompactPlan =
+  | { action: 'set'; value: string; owned: string; note: string }
+  | { action: 'unset'; owned: null; note: string }
+  | { action: 'keep'; owned: string | null; note: string }
+
+export function autoCompactPlan(a: { current: string | undefined; owned: string | null; percent: number }): AutoCompactPlan {
+  const current = a.current?.trim() || undefined
+  const off = a.percent <= 0 || a.percent >= 100
+  const own = "Claude Code's own threshold"
+  if (current !== undefined && current !== a.owned) {
+    return { action: 'keep', owned: null, note: `${current}% of the window (${AUTO_COMPACT_VAR}=${current}, set outside context-bar)` }
+  }
+  if (off) return current === undefined ? { action: 'keep', owned: null, note: own } : { action: 'unset', owned: null, note: own }
+  const value = String(a.percent)
+  const note = `${value}% of the window (${AUTO_COMPACT_VAR}=${value}, set by context-bar)`
+  return current === value ? { action: 'keep', owned: value, note } : { action: 'set', value, owned: value, note }
 }
 
 /** How much of the window the conversation itself takes: the part a compaction can shrink. */
@@ -202,6 +257,31 @@ export function endedTask(text: string): { id: string | null; toolUseId: string 
   return { id: tag('task-id'), toolUseId: tag('tool-use-id'), status: tag('status') }
 }
 
+/** The tools that stop a background task: TaskStop, and KillShell / KillBash, its older names. */
+const STOP_TOOLS: readonly string[] = ['TaskStop', 'KillShell', 'KillBash']
+
+/**
+ * The background task a stop call ended, by the id it names (`task_id`; `shell_id` in the older tools). A task
+ * stopped this way gets no notification (measured 10 Oct 2026: 57 of 57 stopped commands got none), so this call is
+ * the only sign that it ended.
+ */
+export function stoppedTask(tool: string, input: unknown, isError: boolean): string | null {
+  if (isError || !STOP_TOOLS.includes(tool)) return null
+  const i = (input ?? {}) as { task_id?: unknown; shell_id?: unknown }
+  const id = typeof i.task_id === 'string' ? i.task_id : typeof i.shell_id === 'string' ? i.shell_id : null
+  return id || null
+}
+
+/**
+ * The background work Claude Code says is still in flight when a turn ends (the Stop hook's `background_tasks`), by
+ * id; null when the engine does not say.
+ */
+export function inFlightIds(tasks: unknown): Set<string> | null {
+  if (!Array.isArray(tasks)) return null
+  const ids = tasks.map(t => (t as { id?: unknown } | null)?.id).filter((id): id is string => typeof id === 'string')
+  return new Set(ids)
+}
+
 /** Why now is a bad moment, in plain words; null when it is fine. */
 export function busyReason(b: Busy): string | null {
   if (b.subagents > 0) return `${b.subagents} subagent${b.subagents === 1 ? ' is' : 's are'} still running`
@@ -245,14 +325,88 @@ export function tipText(tip: CompactTip, now: number): string {
       return tip.to ? `✓ Pushed to ${tip.to}` : '✓ Pushed'
     case 'finished':
       return `✓ ${tip.what ? `/${tip.what}` : 'The skill run'} finished`
+    case 'done':
+      return TASK_DONE_LINE
+    case 'agent':
+      return tip.what ? `✓ Subagent finished: ${tip.what}` : '✓ Subagent finished'
+    case 'output':
+      return '✓ Long output read'
+    case 'topic':
+      return '✓ New topic started'
+    case 'level':
+      return `✓ Context passed ${tip.what ?? '?'}%`
     case 'resume':
       return `↺ A handoff from your last session was saved ${ago(now - tip.at)} — continue from it?`
   }
 }
 
-/** A finished push or skill run is a hard end: the bar offers a handoff there, not after every commit. */
+/**
+ * A hard end (a push, a long skill run, a task Claude called done, a new topic after finished work): the bar offers
+ * a handoff there too, not after every commit.
+ */
 export function offersHandoff(tip: CompactTip): boolean {
-  return tip.reason === 'pushed' || tip.reason === 'finished'
+  return tip.reason === 'pushed' || tip.reason === 'finished' || tip.reason === 'done' || tip.reason === 'topic'
+}
+
+// ---------------------------------------------------------------- telling Claude a task is done
+
+/** The line Claude ends its reply with when a committed task is fully done, in the person's own words. */
+export const TASK_DONE_LINE = '✅ Task done — good point to /compact'
+
+/**
+ * What Claude reads right after a commit or a push at a good moment (a PostToolUse hook's additional context). Claude
+ * knows whether the task is finished; the bar only knows that a commit landed. So Claude decides, and says it in one
+ * line when it is.
+ */
+export function taskDoneNote(kind: 'commit' | 'push'): string {
+  return [
+    `[context-bar] That ${kind} succeeded.`,
+    'If it completes the task the person asked for, with nothing left to do and nothing still running for it, end your reply with this line on its own, exactly as written:',
+    TASK_DONE_LINE,
+    'If work on the task remains, leave the line out. Write it at most once in a reply.',
+  ].join('\n')
+}
+
+/** Claude's reply says the task is done, with the line the bar asked for. */
+export function saysTaskDone(answer: string): boolean {
+  return answer.includes('Task done — good point to /compact')
+}
+
+// ---------------------------------------------------------------- good moments along the way
+
+/** The 10% step the context is in, counted from `from` (50, 60, 70, ...); null below `from`. */
+export function levelBand(percent: number, from: number): number | null {
+  if (!Number.isFinite(percent) || !(from > 0) || percent < from) return null
+  return from + Math.floor((percent - from) / 10) * 10
+}
+
+/** Words too common to say what a message is about. */
+const COMMON = new Set(
+  (
+    'this that with have from they them their there then than what when where which while will would could should ' +
+    'about into your yours just like make made need want does done doing please lets also some more most been were ' +
+    'only very here over such each other these those after before again still because being sure okay know think ' +
+    'thing things into onto upon same next last first then thank thanks good great time look looks see run use'
+  ).split(' '),
+)
+
+function topicWords(text: string): Set<string> {
+  const words = text.toLowerCase().match(/[a-z0-9][a-z0-9_-]{3,}/g) ?? []
+  return new Set(words.filter(w => !COMMON.has(w)))
+}
+
+/**
+ * The person's message is about something else: it shares almost none of its words (under 15%) with the work just
+ * finished and the messages before it. Too short a message ("ok", "continue", "#push") says nothing either way.
+ */
+export function isNewTopic(prompt: string, before: readonly string[]): boolean {
+  const now = topicWords(prompt)
+  if (now.size < 4) return false
+  const earlier = new Set(before.flatMap(t => [...topicWords(t)]))
+  if (earlier.size === 0) return false
+  let shared = 0
+  for (const w of now) if (earlier.has(w)) shared += 1
+  return shared / now.size < 0.15
 }
 
 
@@ -390,6 +544,8 @@ export function statusText(a: {
   openTasks: number
   now: number
   version: string
+  /** Where Claude Code compacts on its own, and who set it. */
+  autoCompact?: string
 }): string {
   const running = [
     a.turnRunning ? 'a turn' : null,
@@ -407,7 +563,8 @@ export function statusText(a: {
     `Suggestion shown: ${tip}${a.waiting ? ` · waiting to offer: ${a.waiting}` : ''}`,
     `Last handoff: ${handoff}`,
     `Open tasks the next handoff carries: ${a.openTasks}`,
-    `Settings: suggest at ${a.settings.suggestCompactAtTokens.toLocaleString('en-US')} tokens · long output ${a.settings.longOutputTokens.toLocaleString('en-US')} · long skill run ${a.settings.longSkillRunMinutes} min · offer handoffs for ${a.settings.offerHandoffHours} h`,
+    `Settings: suggest at ${a.settings.suggestCompactAtTokens.toLocaleString('en-US')} tokens · from ${a.settings.suggestCompactAtPercent}% of the context · long output ${a.settings.longOutputTokens.toLocaleString('en-US')} · long skill run ${a.settings.longSkillRunMinutes} min · offer handoffs for ${a.settings.offerHandoffHours} h`,
+    `Auto-compact: ${a.autoCompact ?? `${a.settings.autoCompactAtPercent}% of the window`}`,
     `Handoffs go to: ${a.settings.handoffFolder} in the repository${a.settings.commitHandoffs ? ', committed' : ', not committed'}`,
   ].join('\n')
 }

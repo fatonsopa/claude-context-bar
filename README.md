@@ -6,7 +6,7 @@ tokens loaded on every request.
 
 ![The context bar above the Claude Code prompt: tokens used, the two handoff buttons, rate limits and the colour strip](docs/images/bar.png)
 
-Version `0.18.1` · [changelog](CHANGELOG.md)
+Version `0.19.0` · [changelog](CHANGELOG.md)
 
 ## Contents
 
@@ -26,13 +26,13 @@ Version `0.18.1` · [changelog](CHANGELOG.md)
 | Constraint | Effect | `context-bar` response |
 |---|---|---|
 | Context composition is visible only on demand, through `/context`. | Large tool results, file reads and memory files go unnoticed until auto-compaction triggers. | The bar shows usage and composition by category and refreshes within 1.5 s of every prompt and tool call. |
-| Auto-compaction triggers when the context window reaches its limit, including mid-task. | The compaction summary can omit approvals, plan progress, open errors and running subagents. | Prompts compaction at task boundaries. Adds a keep list to every compaction. `handoff & compact` saves a verified handoff first. |
+| Auto-compaction triggers when the context window reaches its limit, including mid-task. | The compaction summary can omit approvals, plan progress, open errors and running subagents. | Prompts compaction at task boundaries and from 50% of the context. Moves auto-compaction to 80%. Adds a keep list to every compaction. `handoff & compact` saves a verified handoff first. |
 | `/clear` flushes the active context window. | New sessions require explicit context re-initialization: goals, status, next steps. | `handoff & clear` saves a verified handoff. `Continue` restores it in the next session. |
 | `CLAUDE.md`, active MCP server tool definitions and the skills listing load on every request. | Static token overhead on every request cycle accelerates auto-compaction. | `/context-doctor` flags oversized items and plans each fix with the tokens it frees. |
 
 ## Requirements
 
-Claude Code `2.1.275` or later. Built and tested on `2.1.292`. Any theme: category colours keep a 3:1 contrast on
+Claude Code `2.1.275` or later. Built and tested on `2.1.296`. Any theme: category colours keep a 3:1 contrast on
 light and dark backgrounds, and every other colour is a Claude Code theme key that follows the active theme.
 
 ## Surfaces
@@ -133,12 +133,32 @@ The bar renders above the prompt and refreshes within 1.5 s of every prompt and 
 
 ### Compaction
 
-The bar prompts compaction after a commit, a push or a skill run of at least `long_skill_run_minutes` (default `5`).
+The bar prompts compaction at these moments. A newer moment replaces the shown one.
+
+| Moment | Line |
+|---|---|
+| Commit | `✓ Changes committed` |
+| Push | `✓ Pushed to GitHub` |
+| Claude ends its reply with the task-done line | `✅ Task done — good point to /compact` |
+| Skill run of `long_skill_run_minutes`+ (default `5`) ends | `✓ /<skill> finished` |
+| Subagent of the main conversation finishes | `✓ Subagent finished: <description>` |
+| Turn that read a tool result of `long_output_tokens`+ ends | `✓ Long output read` |
+| First turn on a new topic after finished work ends | `✓ New topic started` |
+| Turn ends past a new 10% step from `suggest_compact_at_percent` (default `50`) | `✓ Context passed 60%` |
+
 The prompt appears only when all conditions hold:
 
-- The conversation holds at least `suggest_compact_at_tokens` (default `80000`).
+- The conversation holds at least `suggest_compact_at_tokens` (default `80000`). The task-done and context-step
+  moments skip this check.
 - No subagent or background command is running, no git merge or rebase is in progress, and no tests are failing.
 - No compaction ran in the last 10 minutes.
+
+**Task done.** After a commit or push of the main conversation that passes these conditions, Claude receives one
+note: end the reply with `✅ Task done — good point to /compact` if the task is finished. Once per turn.
+
+**Auto-compact fallback.** At session start the bar sets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` to
+`auto_compact_at_percent` (default `80`). Claude Code then compacts at 80% of the window instead of about 97%. A value
+set outside the bar is kept. `0` keeps Claude Code's own threshold.
 
 Every compaction (`/compact`, auto-compaction or another plugin's) receives a keep list. The summary must retain:
 
@@ -235,7 +255,7 @@ Pane controls:
 | `/context-bar recalculate` | Replace the estimate with an exact count. |
 | `/context-bar handoff` | Run `handoff & clear`. |
 | `/context-bar update` | Check for a new version now and install it. See [Update and uninstall](#update-and-uninstall). |
-| `/context-bar status` | Print the version, running work, current suggestion, last handoff, open tasks, settings, the last update check and the surfaces drawing the bar. |
+| `/context-bar status` | Print the version, running work, current suggestion, last handoff, open tasks, settings, the auto-compact threshold, the last update check and the surfaces drawing the bar. |
 | `/context-doctor` | Open the context doctor. |
 | `/context-doctor help` | Print usage. |
 
@@ -246,6 +266,8 @@ Open `/plugin` → `Installed` → `context-bar` → `Configure options`.
 | Option | Key | Default | Effect |
 |---|---|---|---|
 | Suggest compacting at (tokens) | `suggest_compact_at_tokens` | `80000` | Minimum conversation size for compaction prompts. |
+| Suggest compacting from (% of context) | `suggest_compact_at_percent` | `50` | First context step that prompts compaction at a turn's end; then every 10%. |
+| Auto-compact at (% of context) | `auto_compact_at_percent` | `80` | Sets `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`. `0`: Claude Code's own threshold. |
 | Long output tip at (tokens) | `long_output_tokens` | `15000` | Tool result size that triggers the subagent recommendation. |
 | Long skill run (minutes) | `long_skill_run_minutes` | `5` | Skill run duration that counts as finished work. |
 | Offer a handoff for (hours) | `offer_handoff_hours` | `6` | Maximum handoff age for `Continue`. |
